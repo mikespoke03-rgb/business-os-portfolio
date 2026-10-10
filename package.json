@@ -1,0 +1,17 @@
+{
+  "name": "business-os-portfolio",
+  "version": "0.5.1",
+  "private": true,
+  "description": "Synthetic Business OS reconstruction: report renderer, owner Q&A with an eval gate, static demo site",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "test": "node --test tests/renderer.test.js tests/llm_mask.test.js tests/llm_grader.test.js tests/llm_answer.test.js tests/llm_gate_adversarial.test.js tests/promo_decision.test.js && node llm/eval.js",
+    "eval": "node llm/eval.js",
+    "report": "node scripts/render_report.js examples/facts_example.json ru DRY_RUN",
+    "site": "node site/build.js",
+    "ask": "node llm/answer.js prompt"
+  }
+}

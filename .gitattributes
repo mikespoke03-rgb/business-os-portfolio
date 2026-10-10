@@ -1,0 +1,16 @@
+# Text files are stored and checked out with LF on every OS, so Windows rebuilds of examples/ match byte-for-byte.
+* text=auto eol=lf
+# CSV is written by Python's csv module with CRLF row endings on every OS; keep the bytes exactly as generated.
+*.csv -text
+# Binaries: never normalise.
+*.xlsx binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+*.zip binary
+*.gz binary
+*.woff binary
+*.woff2 binary

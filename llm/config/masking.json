@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "description": "What may leave the database before a question is sent to an external model. Rules apply to v_report_facts JSON; first matching rule wins.",
+  "rules": [
+    { "match_key": "^name_(ru|en)$", "action": "drop", "why": "product names never leave; the model sees SKU codes (offer) only" },
+    { "match_key": "(^|_)(cogs|cost|costs|supplier|purchase_price|landed)(_|$)", "action": "drop", "why": "supplier prices and unit costs never leave the database" },
+    { "match_path": "^cash\\.next_out\\.events$", "action": "redact", "why": "free text may name lenders or counterparties" },
+    { "match_path": "^cash\\.(opening|min_30d\\.balance_rub|next_out\\.(balance_rub|balance_before|outflow_rub))$", "action": "round", "to": 1000, "why": "cash figures are aggregated to thousands" }
+  ],
+  "value_patterns": [
+    { "name": "email", "regex": "[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}" },
+    { "name": "phone", "regex": "(?:\\+7|\\b8)[\\s(-]*\\d{3}[\\s)-]*\\d{3}[\\s-]*\\d{2}[\\s-]*\\d{2}\\b" },
+    { "name": "inn_or_account", "regex": "\\b\\d{10}(?:\\d{2})?(?:\\d{8})?\\b" },
+    { "name": "telegram_token", "regex": "\\b\\d{6,12}:[A-Za-z0-9_-]{30,}\\b" }
+  ],
+  "replacement": "[скрыто]"
+}

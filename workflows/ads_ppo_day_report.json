@@ -1,0 +1,371 @@
+{
+  "name": "Business OS - Ads pay-per-order day report (06:20 MSK)",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 6,
+              "triggerAtMinute": 20
+            }
+          ]
+        }
+      },
+      "name": "Schedule 06:20 MSK",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "aaf00673-a6e1-5207-b8eb-01329b1a922a"
+    },
+    {
+      "parameters": {
+        "jsCode": "\n// Jobs = (MSK day × report kind). Schedule: yesterday MSK. Temporary webhook (backfill): {from_day,to_day,run_mode}.\nconst src = $input.first().json || {};\nconst body = src.body || {};\nconst mskNow = new Date(Date.now() + 3*3600*1000);\nconst y = new Date(mskNow.getTime() - 24*3600*1000).toISOString().slice(0,10);\nlet fromDay = y, toDay = y, mode = 'schedule';\nif (body.from_day) { fromDay = String(body.from_day); toDay = String(body.to_day || body.from_day); mode = String(body.run_mode || 'backfill'); }\nconst re = /^\\d{4}-\\d{2}-\\d{2}$/;\nif (!re.test(fromDay) || !re.test(toDay) || fromDay > toDay || toDay > y) throw new Error('bad day range '+fromDay+'..'+toDay);\nconst out = [];\nfor (let d = new Date(fromDay+'T00:00:00Z'); d <= new Date(toDay+'T00:00:00Z'); d = new Date(d.getTime()+86400000)) {\n  for (const kind of ['products','orders']) out.push({ json: { report_day: d.toISOString().slice(0,10), kind, run_mode: mode } });\n}\nif (out.length > 140) throw new Error('range too long: '+out.length);\nreturn out;\n"
+      },
+      "name": "Build Jobs",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        100
+      ],
+      "id": "4a62947e-efaf-503a-9813-4932238c9f9e"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "name": "Loop Jobs",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        440,
+        100
+      ],
+      "id": "94c87c9b-bfe9-5b62-a567-edbc8818e6ce"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api-performance.ozon.ru/api/client/token",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpCustomAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\"grant_type\":\"client_credentials\"}",
+        "options": {}
+      },
+      "name": "Get Performance Token",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        660,
+        200
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "notes": "Credential required: httpCustomAuth (attach your own after import)",
+      "id": "ad29d7d3-fc03-542e-8adb-6db1caa49e7d"
+    },
+    {
+      "parameters": {
+        "jsCode": "\n// Pay-per-order, all products (campaign PPO_CAMPAIGN_ID), ONE MSK day, one report kind per job:\n//   products: GET /api/client/statistics/all_sku_promo/products/generate/json (day: expense, orders/sales search+recs)\n//   orders:   GET /api/client/statistics/all_sku_promo/orders/generate/json   (per order: SKU, offer id, price, bid, expense)\n// n8n Cloud Code task limit = 60 s, so each call is bounded to ~52 s worst case and\n// returns state PENDING / RATE_LIMITED (workflow waits 15 s and calls again) or DONE (-> Insert receipt).\nconst j = $json.state ? { ...$json } : { ...$('Loop Jobs').first().json, empty_retry: Number($json.empty_retry || 0),\n  report_uuid: null, order_attempts: 0, poll_attempts: 0, order_http_status: null };\nif ($json.reset_for_retry) { Object.assign(j, { ...$('Loop Jobs').first().json, empty_retry: 1, report_uuid: null, order_attempts: 0, poll_attempts: 0, order_http_status: null }); }\nconst token = $('Get Performance Token').first().json.access_token;\nconst base = 'https://api-performance.ozon.ru';\nconst sleep = (ms) => new Promise(r => setTimeout(r, ms));\nconst deadline = Date.now() + 25000; // worst case: order 15 s + poll to ~32 s + download 20 s < 60 s task limit\nconst KINDS = { products: '/api/client/statistics/all_sku_promo/products/generate/json',\n                orders:   '/api/client/statistics/all_sku_promo/orders/generate/json' };\nconst PATH = KINDS[j.kind];\nconst prev = new Date(Date.parse(j.report_day + 'T00:00:00Z') - 86400000).toISOString().slice(0,10);\nconst q = { 'timeBounds.from': prev + 'T21:00:00Z', 'timeBounds.to': j.report_day + 'T20:59:59Z' }; // = MSK day 00:00:00..23:59:59\nconst auth = { Authorization: 'Bearer ' + token, Accept: 'application/json' };\nObject.assign(j, { request_body: { kind: j.kind, method: 'GET', path: PATH, query: q }, workflow_id: $workflow.id, execution_id: String($execution.id),\n  final_state: null, download_http_status: null, body_b64: null, parsed_row_count: null, error_text: null });\ntry {\n  if (!j.report_uuid) {\n    j.order_attempts = (j.order_attempts || 0) + 1;\n    const r = await this.helpers.httpRequest({ method: 'GET', url: base + PATH, headers: auth, qs: q, json: true,\n      returnFullResponse: true, ignoreHttpStatusErrors: true, timeout: 15000 });\n    j.order_http_status = r.statusCode;\n    if (r.statusCode === 429 || r.statusCode >= 500) {\n      if (j.order_attempts >= 5) { j.final_state = 'ORDER_HTTP_' + r.statusCode; j.state = 'DONE'; return [{ json: j }]; }\n      j.state = 'RATE_LIMITED'; return [{ json: j }];\n    }\n    const ob = typeof r.body === 'string' ? (() => { try { return JSON.parse(r.body); } catch (e) { return { raw: r.body }; } })() : r.body;\n    j.report_uuid = (ob && (ob.UUID || ob.uuid)) || null;\n    if (!j.report_uuid) { j.final_state = 'ORDER_FAILED'; j.error_text = JSON.stringify(ob).slice(0, 2000); j.state = 'DONE'; return [{ json: j }]; }\n  }\n  let st = null;\n  while (Date.now() + 6000 < deadline) {\n    await sleep(5000);\n    j.poll_attempts = (j.poll_attempts || 0) + 1;\n    const s = await this.helpers.httpRequest({ method: 'GET', url: base + '/api/client/statistics/' + j.report_uuid,\n      headers: auth, json: true, returnFullResponse: true, ignoreHttpStatusErrors: true, timeout: 8000 });\n    if (s.statusCode === 429 || s.statusCode >= 500) { continue; }\n    const sb = typeof s.body === 'string' ? JSON.parse(s.body) : s.body;\n    st = sb && sb.state;\n    if (st === 'ERROR') { j.error_text = JSON.stringify(sb).slice(0, 2000); break; }\n    if (st === 'OK') break;\n  }\n  if (st === 'ERROR') { j.final_state = 'REPORT_ERROR'; j.state = 'DONE'; return [{ json: j }]; }\n  if (st !== 'OK') {\n    // n8n Cloud caps an execution at 5 min: give up after ~2 min and record POLL_TIMEOUT (then one retry)\n    if (j.poll_attempts >= 16) { j.final_state = 'POLL_TIMEOUT'; j.state = 'DONE'; } else { j.state = 'PENDING'; }\n    return [{ json: j }];\n  }\n  const d = await this.helpers.httpRequest({ method: 'GET', url: base + '/api/client/statistics/report',\n    qs: { UUID: j.report_uuid }, headers: auth, encoding: 'arraybuffer', json: false,\n    returnFullResponse: true, ignoreHttpStatusErrors: true, timeout: 20000 });\n  j.download_http_status = d.statusCode;\n  const buf = Buffer.from(d.body);\n  j.body_b64 = buf.toString('base64');\n  let n = 0;\n  try { const b = JSON.parse(buf.toString('utf8')); n = Array.isArray(b.rows) ? b.rows.length : 0; }\n  catch (e) { j.error_text = 'body not JSON: ' + e.message; }\n  j.parsed_row_count = n;\n  j.final_state = d.statusCode === 200 ? (n > 0 ? 'OK_ROWS' : 'OK_EMPTY') : 'DOWNLOAD_HTTP_' + d.statusCode;\n  j.state = 'DONE';\n} catch (e) {\n  j.final_state = 'EXCEPTION'; j.error_text = String(e && e.message || e).slice(0, 2000); j.state = 'DONE';\n}\nreturn [{ json: j }];\n"
+      },
+      "name": "Fetch PPO Report Step",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        880,
+        200
+      ],
+      "id": "bac5f4a8-3de9-54c6-b1ad-4c75b2559374"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "d4dc02d5-5221-5e07-a675-3a7c45e79ea9",
+              "leftValue": "={{ $json.state === 'DONE' }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "name": "Report done?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1100,
+        200
+      ],
+      "id": "6d98e3a5-e02e-5e88-bc8c-0009883949d6"
+    },
+    {
+      "parameters": {
+        "amount": 15,
+        "unit": "seconds"
+      },
+      "name": "Wait 15s (pending / rate limit)",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        1100,
+        420
+      ],
+      "id": "fc0ff438-3fa0-53e9-8f14-432f87a7d02b"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT ops.ads_ppo_capture($1::jsonb) AS r;",
+        "options": {
+          "queryReplacement": "={{ [ JSON.stringify($json) ] }}"
+        }
+      },
+      "name": "Insert Receipt in Neon",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1320,
+        100
+      ],
+      "notes": "Credential required: postgres (attach your own after import)",
+      "id": "9ecf6d40-d795-506b-a8d4-2ff25624ae3b"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "d5b81de0-fbef-5458-a64d-db58cb327b81",
+              "leftValue": "={{ ['OK_EMPTY','POLL_TIMEOUT','EXCEPTION'].includes($json.r.final_state) && Number($json.r.empty_retry) === 0 }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "name": "Empty and not retried?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1540,
+        100
+      ],
+      "id": "b3c8d314-4eff-5d62-b8a5-1203759db9d5"
+    },
+    {
+      "parameters": {
+        "amount": 60,
+        "unit": "seconds"
+      },
+      "name": "Wait 60s before retry",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        1760,
+        0
+      ],
+      "id": "3b6d7209-f19c-52c1-b2bc-c0a65bd4f79b"
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: { reset_for_retry: true } }];"
+      },
+      "name": "Mark Retry",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1980,
+        0
+      ],
+      "id": "518fe690-2c7e-5f52-9a25-37ee3dec5835"
+    }
+  ],
+  "connections": {
+    "Schedule 06:20 MSK": {
+      "main": [
+        [
+          {
+            "node": "Build Jobs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Jobs": {
+      "main": [
+        [
+          {
+            "node": "Loop Jobs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Jobs": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Get Performance Token",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Performance Token": {
+      "main": [
+        [
+          {
+            "node": "Fetch PPO Report Step",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch PPO Report Step": {
+      "main": [
+        [
+          {
+            "node": "Report done?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Report done?": {
+      "main": [
+        [
+          {
+            "node": "Insert Receipt in Neon",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Wait 15s (pending / rate limit)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait 15s (pending / rate limit)": {
+      "main": [
+        [
+          {
+            "node": "Fetch PPO Report Step",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert Receipt in Neon": {
+      "main": [
+        [
+          {
+            "node": "Empty and not retried?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Empty and not retried?": {
+      "main": [
+        [
+          {
+            "node": "Wait 60s before retry",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Loop Jobs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait 60s before retry": {
+      "main": [
+        [
+          {
+            "node": "Mark Retry",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Retry": {
+      "main": [
+        [
+          {
+            "node": "Fetch PPO Report Step",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "saveManualExecutions": true,
+    "executionTimeout": 300,
+    "timezone": "Europe/Moscow",
+    "executionOrder": "v1"
+  },
+  "active": false
+}

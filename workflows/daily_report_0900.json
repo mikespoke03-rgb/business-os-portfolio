@@ -1,0 +1,416 @@
+{
+  "name": "Business OS - Daily report 09:00 MSK (Telegram)",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 9 * * *"
+            }
+          ]
+        }
+      },
+      "name": "Daily 09:00 MSK",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "eaa3585e-f101-5cb9-a786-d703c35a4f8a"
+    },
+    {
+      "parameters": {},
+      "name": "Manual Dry Run",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        180
+      ],
+      "id": "c47be414-cd18-5302-8660-71bd414b08ef"
+    },
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "name": "When Executed by Another Workflow",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        360
+      ],
+      "id": "f41a32df-9b04-58a2-9fd6-0353e5ac1edd"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const now = new Date();\nconst todayMsk = new Date(now.getTime() + 3 * 3600 * 1000).toISOString().slice(0, 10);\nlet triggerType = 'MANUAL_DRY_RUN';\nconst T = (n) => { try { return $(n).isExecuted; } catch (e) { return false; } };\nif (T('Daily 09:00 MSK')) triggerType = 'SCHEDULED';\nelse if (T('When Executed by Another Workflow')) triggerType = 'OWNER_QUERY';\nreturn [{ json: { triggerType, todayMsk, nowIso: now.toISOString(), n8nExecutionId: String($execution.id) } }];"
+      },
+      "name": "Prepare Report",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        180
+      ],
+      "id": "c84b2a36-88b8-5a66-b3dd-a14d94a43205"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "// GENERATED from scripts/render_report.js + scripts/n8n_report_glue.js - edit those files, then re-run\n// python3 scripts/inline_renderer_into_workflow.py\n// Daily 09:00 report renderer - pure function, no I/O.\n// The same code is pasted into the n8n Code node \"Build Report Message\" (see workflows/daily_report_0900.json).\n// Input: facts = analytics.v_report_facts.j. Output: { text, parts, chars }.\n// Rules (from the production version):\n//  * every section prints the date of the data it shows; if it is not the expected day, it says so and why;\n//  * missing data is written as \"no data\", never as 0;\n//  * the order-model margin and the realised margin are two separate numbers and are never added up;\n//  * estimates are labelled as estimates; recommendations are calculations, nothing is applied automatically;\n//  * Telegram limit 4096 chars: protected lines (dates, caveats) are never cut, only optional lines are dropped.\n'use strict';\n\nfunction renderReport(f, opts = {}) {\n  const lang = opts.lang === 'en' ? 'en' : 'ru';\n  const T = (ru, en) => (lang === 'en' ? en : ru);\n  const MAX = opts.maxChars || 3900;\n  const WD = T(['воскресенье', 'понедельник', 'вторник', 'среда', 'четверг', 'пятница', 'суббота'],\n               ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']);\n  // Timestamps are always shown in business time (Europe/Moscow), whatever offset or session time zone the\n  // database used. Values with an explicit offset/Z are converted; date-only values and naive strings are kept as is.\n  const mskParts = (v) => {\n    const s = String(v);\n    if (!/^\\d{4}-\\d{2}-\\d{2}[T ]\\d{2}:\\d{2}/.test(s) || !/(Z|[+-]\\d{2}(:?\\d{2})?)$/.test(s)) return null;\n    const d = new Date(s.replace(' ', 'T').replace(/([+-]\\d{2})$/, '$1:00'));\n    if (Number.isNaN(d.getTime())) return null;\n    try {\n      const p = Object.fromEntries(new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Moscow', year: 'numeric', month: '2-digit',\n        day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(d).map((x) => [x.type, x.value]));\n      return { date: `${p.year}-${p.month}-${p.day}`, time: `${p.hour}:${p.minute}` };\n    } catch (e) { // runtime without time-zone data: Moscow is fixed UTC+3 since 2014\n      const m = new Date(d.getTime() + 3 * 3600 * 1000).toISOString();\n      return { date: m.slice(0, 10), time: m.slice(11, 16) };\n    }\n  };\n  const iso = (v) => { if (v == null) return null; const m = mskParts(v); return m ? m.date : String(v).slice(0, 10); };\n  const dm = (v) => { const s = iso(v); return s ? `${s.slice(8, 10)}.${s.slice(5, 7)}` : '?'; };\n  const addDays = (s, n) => { const d = new Date(iso(s) + 'T12:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };\n  const hm = (ts) => { if (!ts) return '?'; const m = mskParts(ts); return m ? m.time : String(ts).slice(11, 16); };\n  const dmhm = (ts) => (ts ? `${dm(ts)} ${hm(ts)}` : '?');\n  const num = (v) => (v === null || v === undefined || v === '' || !Number.isFinite(Number(v)) ? null : Number(v));\n  const sp = (n) => num(n) === null ? T('нет данных', 'unknown') : String(Math.round(n)).replace(/\\B(?=(\\d{3})+(?!\\d))/g, lang === 'en' ? ',' : ' ');\n  const dec = (x) => (lang === 'en' ? String(x) : String(x).replace('.', ','));\n  const t1 = (n) => num(n) === null ? T('нет данных', 'unknown') : dec(Math.round(Number(n) / 100) / 10);\n  const K = T('тыс. ₽', 'k RUB');\n  const sgn = (n, fn) => num(n) === null ? T('не рассчитано', 'not computed') : (n > 0 ? '+' : n < 0 ? '−' : '±') + fn(Math.abs(n));\n  const pct = (a, b) => (b ? Math.round((100 * (a - b)) / b) : null);\n  const sgnPct = (p) => (p === null ? '?' : (p > 0 ? '+' : p < 0 ? '−' : '±') + Math.abs(p) + '%');\n  const name = (x) => (lang === 'en' ? x.name_en : x.name_ru) || x.offer;\n  const fr = f.freshness || {};\n  const failed = (src) => (f.failed_runs_today || []).find((r) => r.source === src);\n  const today = iso(f.today); const yest = addDays(today, -1);\n  const L = []; const P = (s, prot = true) => L.push([s, prot]); const blank = () => P('');\n\n  P(T(`Утренний отчёт DemoBrand · ${dm(today)}, ${WD[new Date(today + 'T12:00:00Z').getUTCDay()]}`,\n      `DemoBrand morning report · ${dm(today)}, ${WD[new Date(today + 'T12:00:00Z').getUTCDay()]}`) +\n    (opts.mode === 'DRY_RUN' ? T(' · черновик, в Telegram не отправлялся', ' · draft, not sent to Telegram') : ''));\n\n  // 1) Orders --------------------------------------------------------------\n  blank();\n  const rows = f.orders || []; const last = rows.length ? rows[rows.length - 1] : null;\n  if (!last) P(T('1) Заказы — за 40 дней нет ни одного загруженного дня.', '1) Orders — no loaded day in the last 40 days.'));\n  else {\n    const loaded = last.loaded_at ? T(` (загружен ${dmhm(last.loaded_at)})`, ` (loaded ${dmhm(last.loaded_at)})`) : '';\n    if (iso(last.d) === yest) P(T(`1) Заказы за ${dm(last.d)}${loaded}`, `1) Orders for ${dm(last.d)}${loaded}`));\n    else {\n      const fl = failed('orders_by_sku');\n      P(T(`1) Заказы — за ${dm(yest)} данных нет; последний загруженный день ${dm(last.d)}${loaded}`,\n          `1) Orders — no data for ${dm(yest)}; last loaded day ${dm(last.d)}${loaded}`) +\n        (fl ? T(`. Загрузка сегодня не прошла: ${fl.error || fl.state}.`, `. Today's load failed: ${fl.error || fl.state}.`) : '.'));\n    }\n    const prev = rows.length > 1 ? rows[rows.length - 2] : null; const w = rows.slice(-8, -1); const n7 = w.length;\n    const au = n7 ? w.reduce((s, r) => s + Number(r.u), 0) / n7 : null; const ar = n7 ? w.reduce((s, r) => s + Number(r.rev), 0) / n7 : null;\n    let s = T(`${sp(last.u)} шт на ${t1(last.rev)} ${K} (отмен ${sp(last.canc)}).`, `${sp(last.u)} units, ${t1(last.rev)} ${K} (cancelled ${sp(last.canc)}).`);\n    if (prev) s += T(` К ${dm(prev.d)}: ${sgn(last.u - prev.u, sp)} шт, ${sgn(last.rev - prev.rev, t1)} ${K}.`, ` vs ${dm(prev.d)}: ${sgn(last.u - prev.u, sp)} units, ${sgn(last.rev - prev.rev, t1)} ${K}.`);\n    if (n7) s += T(` К среднему за ${n7} дн. до этого (${dec(Math.round(au * 10) / 10)} шт; ${t1(ar)} ${K} в день): ${sgnPct(pct(last.u, au))} шт, ${sgnPct(pct(last.rev, ar))} ₽.`,\n                   ` vs the ${n7}-day average before it (${dec(Math.round(au * 10) / 10)} units; ${t1(ar)} ${K}/day): ${sgnPct(pct(last.u, au))} units, ${sgnPct(pct(last.rev, ar))} revenue.`);\n    P(s);\n  }\n\n  // 2) Margin: order model vs realised (never summed) -------------------------\n  blank();\n  P(T('2) Маржа (две разные цифры — не складываются)', '2) Margin (two different numbers — never added up)'));\n  if (last) {\n    if (num(last.cm) === null || num(last.cm_buyout) === null) {\n      P(T('Вклад по заказам не рассчитан: обязательные данные модели или рекламы отсутствуют (не ноль).',\n          'Order contribution is not computed: required model or ads data are missing (not zero).'));\n    } else {\n    P(T(`По заказам ${dm(last.d)}, если всё выкупят: ${sgn(last.cm, t1)} ${K} — после себестоимости, комиссий и логистики (модельные ставки), НДС (модель) и рекламы ${t1(last.ads || 0)} тыс. С учётом доли выкупа: ${sgn(last.cm_buyout, t1)} ${K}.`,\n        `Orders of ${dm(last.d)}, if everything is bought out: ${sgn(last.cm, t1)} ${K} — after COGS, marketplace fees and logistics (model rates), VAT (model) and ads ${t1(last.ads || 0)}k. Adjusted for buyout rate: ${sgn(last.cm_buyout, t1)} ${K}.`));\n    }\n    const rl = [...rows].reverse().find((r) => r.realised_state === 'REALISED_PRESENT');\n    if (!rl) P(T('Факт начислений за эти дни ещё не загружен (это не ноль).', 'Realised accruals for these days are not loaded yet (this is not zero).'));\n    else if (num(rl.r_cm) === null) P(T(`Начисления за ${dm(rl.d)} загружены; вклад не рассчитан: обязательные данные модели или рекламы отсутствуют.`,\n       `Accruals are loaded for ${dm(rl.d)}; contribution is not computed because required model or ads data are missing.`));\n    else P(T(`Факт начислений за ${dm(rl.d)} (продано ${sp(rl.r_u)} шт на ${t1(rl.r_sales)} ${K}): ${sgn(rl.r_cm, t1)} ${K} — удержания маркетплейса по факту, себестоимость и НДС по модели.` + (iso(rl.d) < iso(last.d) ? ` За ${addDays(rl.d, 1) === iso(last.d) ? dm(last.d) : dm(addDays(rl.d, 1)) + '–' + dm(last.d)} начислений ещё нет.` : ''),\n             `Realised accruals for ${dm(rl.d)} (sold ${sp(rl.r_u)} units for ${t1(rl.r_sales)} ${K}): ${sgn(rl.r_cm, t1)} ${K} — actual marketplace charges, COGS and VAT by model.` + (iso(rl.d) < iso(last.d) ? ` No accruals yet for ${addDays(rl.d, 1) === iso(last.d) ? dm(last.d) : dm(addDays(rl.d, 1)) + '–' + dm(last.d)}.` : '')));\n  } else P(T('Нет строки дня — маржу не считаю.', 'No day row — margin not computed.'));\n\n  // 3) Break-even ------------------------------------------------------------\n  const m = f.mtd || {};\n  if (last && num(last.bar) && num(last.cm) !== null) {\n    blank();\n    P(T(`3) Безубыточность: нужно ${t1(last.bar)} ${K} маржи в день (постоянные расходы + финансирование, делённые на дни месяца)`,\n        `3) Break-even: ${t1(last.bar)} ${K} of contribution needed per day (fixed costs + financing, divided by days in month)`));\n    let s = T(`${dm(last.d)} по заказам: ${Math.round((100 * last.cm) / last.bar)}% (${t1(last.cm)} из ${t1(last.bar)}).`,\n              `${dm(last.d)} by orders: ${Math.round((100 * last.cm) / last.bar)}% (${t1(last.cm)} of ${t1(last.bar)}).`);\n    const gap = (g) => (g < 0 ? T(`не хватает ${t1(-g)} ${K}`, `short by ${t1(-g)} ${K}`) : T(`запас ${t1(g)} ${K}`, `ahead by ${t1(g)} ${K}`));\n    if (m.n && num(m.o_cm) !== null && num(m.bar) > 0) {\n      s += T(` С начала месяца (${m.n} дн.): по заказам ${Math.round((100 * m.o_cm) / m.bar)}%, ${gap(m.o_cm - m.bar)}`, ` Month to date (${m.n} days): by orders ${Math.round((100 * m.o_cm) / m.bar)}%, ${gap(m.o_cm - m.bar)}`);\n      if (m.n_realised && num(m.r_cm) !== null && num(m.r_bar) > 0) s += T(`; по факту начислений (${m.n_realised} дн.) ${Math.round((100 * m.r_cm) / m.r_bar)}%, ${gap(m.r_cm - m.r_bar)}.`, `; by realised accruals (${m.n_realised} days) ${Math.round((100 * m.r_cm) / m.r_bar)}%, ${gap(m.r_cm - m.r_bar)}.`);\n      else s += '.';\n    } else if (m.n) {\n      s += T(' Покрытие с начала месяца недоступно: есть дни без рассчитанного вклада.', ' Month-to-date coverage is unavailable: some loaded days have no computed contribution.');\n    }\n    P(s);\n    P(T('Оценки: ставки комиссии и логистики, НДС и себестоимость — параметры модели, а не факт.', 'Estimates: fee and logistics rates, VAT and COGS are model parameters, not actuals.'));\n  }\n\n  // 4) Ads ---------------------------------------------------------------------\n  blank();\n  const a = f.ads;\n  if (!a) P(T(`4) Реклама — за ${dm(yest)} данных нет.`, `4) Ads — no data for ${dm(yest)}.`));\n  else {\n    P(T(`4) Реклама за ${dm(a.stat_day)}`, `4) Ads for ${dm(a.stat_day)}`));\n    let s;\n    if (a.cpc_status !== 'OK') s = T('Оплата за клики: отчёта нет (не ноль).', 'Cost-per-click: no report (not zero).');\n    else {\n      s = T(`Оплата за клики: ${t1(a.cpc_spend_rub)} тыс. ₽; показы ${t1(a.cpc_impressions)} тыс., CTR ${dec(a.cpc_ctr_pct)}%, цена клика ${dec(Math.round(a.cpc_cpc_rub * 10) / 10)} ₽, заказов с рекламы ${sp(a.cpc_orders)}.`,\n            `Cost-per-click: ${t1(a.cpc_spend_rub)}k RUB; ${t1(a.cpc_impressions)}k impressions, CTR ${dec(a.cpc_ctr_pct)}%, CPC ${dec(Math.round(a.cpc_cpc_rub * 10) / 10)} RUB, ${sp(a.cpc_orders)} ad orders.`);\n      const d = num(a.cpc_spend_diff_vs_expense_rub);\n      if (d !== null) s += Math.abs(d) < 5 ? T(' Сходится с выпиской расходов кабинета.', ' Matches the ad-account expense ledger.') : T(` С выпиской расходов расходится на ${sp(Math.abs(d))} ₽.`, ` Differs from the expense ledger by ${sp(Math.abs(d))} RUB.`);\n    }\n    P(s);\n    if (a.ppo_status === 'OK') P(T(`Оплата за заказ: ${t1(a.ppo_spend_expense_rub)} тыс. ₽, заказов ${sp(a.ppo_orders)} на ${t1(a.ppo_order_revenue_rub)} ${K}.`, `Pay-per-order: ${t1(a.ppo_spend_expense_rub)}k RUB, ${sp(a.ppo_orders)} orders for ${t1(a.ppo_order_revenue_rub)} ${K}.`));\n    else P(T(`Оплата за заказ: расход по выписке ${a.ppo_spend_expense_rub == null ? 'неизвестен' : t1(a.ppo_spend_expense_rub) + ' тыс. ₽'}; отчёта за ${dm(a.stat_day)} нет — заказы с этой модели неизвестны (не ноль).`,\n             `Pay-per-order: expense ledger ${a.ppo_spend_expense_rub == null ? 'unknown' : t1(a.ppo_spend_expense_rub) + 'k RUB'}; no report for ${dm(a.stat_day)} — orders from this model are unknown (not zero).`));\n    const am = f.ads_mtd || {};\n    let d2 = a.drr_pct == null ? T(`ДРР за ${dm(a.stat_day)} не рассчитана: нет полного расхода рекламы или ненулевой выручки заказов.`, `ACoS for ${dm(a.stat_day)} is not computed: complete ad spend or nonzero order revenue is unavailable.`)\n                               : T(`ДРР ${dec(a.drr_pct)}% от заказов дня.`, `ACoS ${dec(a.drr_pct)}% of the day's orders.`);\n    if (num(am.rev) && num(am.spend) !== null && num(am.spend_with_rev) !== null) d2 += T(` С начала месяца: ${t1(am.spend)} тыс. ₽, ДРР ${dec(Math.round((1000 * am.spend_with_rev) / am.rev) / 10)}% (по дням, где есть заказы).`,\n                             ` Month to date: ${t1(am.spend)}k RUB, ACoS ${dec(Math.round((1000 * am.spend_with_rev) / am.rev) / 10)}% (days with loaded orders).`);\n    P(d2);\n  }\n\n  // 5) Prices and promos -------------------------------------------------------\n  blank();\n  P(T('5) Цены и акции', '5) Prices and promotions'));\n  const pr = f.prices || {};\n  if (!pr.d) P(T('Цена продавца — снимков нет.', 'Seller price — no snapshots.'));\n  else {\n    let s = iso(pr.d) === today ? T(`Цена продавца: снимок ${dmhm(pr.cap)} (${pr.n} SKU)`, `Seller price: snapshot ${dmhm(pr.cap)} (${pr.n} SKUs)`)\n                                : T(`Цена продавца: снимка за ${dm(today)} нет; последний ${dmhm(pr.cap)} (${pr.n} SKU)`, `Seller price: no snapshot for ${dm(today)}; last one ${dmhm(pr.cap)} (${pr.n} SKUs)`);\n    const ch = pr.changes || []; const ex = ch.slice(0, 3).map((c) => `${name(c)} ${sp(c.old)}→${sp(c.new)}`).join(', ');\n    const up = ch.filter((c) => c.new > c.old).length;\n    const dir = up === ch.length ? T('все вверх', 'all up') : up === 0 ? T('все вниз', 'all down') : T(`${up} вверх, ${ch.length - up} вниз`, `${up} up, ${ch.length - up} down`);\n    if (!pr.prev_d) s += T(' — сравнить не с чем.', ' — nothing to compare with.');\n    else if (iso(pr.last_change_day) === iso(pr.d)) s += T(` против ${dm(pr.prev_d)}: изменились ${ch.length} (${dir}), напр. ${ex}.`, ` vs ${dm(pr.prev_d)}: ${ch.length} changed (${dir}), e.g. ${ex}.`);\n    else s += T(` против ${dm(pr.prev_d)}: без изменений.`, ` vs ${dm(pr.prev_d)}: no changes.`) + (ch.length ? T(` Последние изменения ${dm(pr.last_change_day)}: ${ch.length} SKU (${dir}), напр. ${ex}.`, ` Last changes ${dm(pr.last_change_day)}: ${ch.length} SKUs (${dir}), e.g. ${ex}.`) : '');\n    P(s);\n    P(T(`У ${pr.promo_below} из ${pr.n} SKU цена в акции ниже обычной.`, `${pr.promo_below} of ${pr.n} SKUs have a promo price below the regular price.`), false);\n  }\n  const po = f.promo;\n  if (!po || !po.measured_at) P(T('Акции — замеров нет.', 'Promotions — no measurement.'));\n  else {\n    let s = T(`Акции (замер ${dmhm(po.measured_at)}`, `Promotions (measured ${dmhm(po.measured_at)}`) + (iso(po.measured_at) < today ? T('; свежее нет', '; nothing newer') : '') +\n      T(`): акций ${po.n_actions}, позиций участвует ${po.n_participating}.`, `): ${po.n_actions} actions, ${po.n_participating} SKU entries participating.`);\n    if (po.nearest_title) s += T(` Ближайший старт ${dm(po.nearest_start)} «${po.nearest_title}»: ${po.nearest_n_sku} SKU — входить ${po.nearest_enter}, не входить ${po.nearest_dont}, решить владельцу ${po.nearest_decide}.`,\n                                 ` Next start ${dm(po.nearest_start)} \"${po.nearest_title}\": ${po.nearest_n_sku} SKUs — enter ${po.nearest_enter}, don't ${po.nearest_dont}, owner decides ${po.nearest_decide}.`);\n    if (num(po.autoadd_n_sku)) {\n      s += T(` Автодобавление ${dm(po.autoadd_date)}: ${po.autoadd_n_sku} SKU, из них не входить ${po.autoadd_dont}`, ` Auto-add on ${dm(po.autoadd_date)}: ${po.autoadd_n_sku} SKUs, ${po.autoadd_dont} of them \"don't\"`);\n      if (num(po.autoadd_margin_delta_day_rub) !== null) s += T(`; маржа ${sgn(po.autoadd_margin_delta_day_rub, t1)} ${K}/день при нынешних продажах`, `; margin ${sgn(po.autoadd_margin_delta_day_rub, t1)} ${K}/day at current sales`);\n      s += '.';\n    }\n    P(s + T(' Это оценка; рост продаж от акции неизвестен; акции сами не подключаются.', ' Estimate only; the sales uplift is unknown; nothing is joined automatically.'));\n  }\n\n  // 6) Stock and shipments ------------------------------------------------------\n  blank();\n  P(T('6) Остатки и отгрузки', '6) Stock and shipments'));\n  const st = f.stock || {};\n  if (!st.d) P(T('Остатки FBO — снимков нет.', 'FBO stock — no snapshots.'));\n  else {\n    let s = iso(st.d) === today ? T(`Остатки FBO ${dmhm(st.cap)}:`, `FBO stock ${dmhm(st.cap)}:`) : T(`Остатков за ${dm(today)} нет; последние ${dmhm(st.cap)}:`, `No stock snapshot for ${dm(today)}; last one ${dmhm(st.cap)}:`);\n    s += T(` без свободного остатка ${st.n_zero} из ${st.n_sku} SKU.`, ` ${st.n_zero} of ${st.n_sku} SKUs have no free stock.`);\n    const cr = st.critical || [];\n    if (cr.length) s += T(` Важные (A/B) 0–${st.crit_units} шт: `, ` Key (A/B) SKUs at 0–${st.crit_units} units: `) + cr.slice(0, 5).map((c) => `${name(c)} — ${c.free}`).join(', ') + (cr.length > 5 ? T(`, ещё ${cr.length - 5}`, `, ${cr.length - 5} more`) : '') + '.';\n    P(s);\n  }\n  const sh = f.ship || {};\n  if (num(sh.n_no_fresh)) P(T('Отгрузки: заказы по кластерам устарели — рекомендации нет.', 'Shipments: cluster orders are stale — no recommendation.'));\n  else if (num(sh.units)) P(T(`Отгрузки под ${sh.cover_days} дн. спроса (заказы по кластерам до ${dm(sh.orders_as_of)}, остатки ${dm(sh.stock_date)}): ${sp(sh.units)} шт в ${sh.lines} строках SKU×кластер; больше всего — `,\n                              `Shipments for ${sh.cover_days} days of demand (cluster orders to ${dm(sh.orders_as_of)}, stock ${dm(sh.stock_date)}): ${sp(sh.units)} units in ${sh.lines} SKU×cluster lines; largest — `) +\n    (sh.top_clusters || []).map((c) => `${c.cluster} ${sp(c.units)}`).join(', ') + T('. Рекомендация, не заявка.', '. A recommendation, not a shipment request.'), false);\n\n  // 7) Cash ------------------------------------------------------------------\n  const c = f.cash || {};\n  if (c.as_of) {\n    blank();\n    P(T('7) Деньги', '7) Cash'));\n    let s = c.opening_status === 'OWNER_STATED' ? T(`Касса не подтверждена выпиской: владелец указал ${sp(c.opening)} ₽ на ${dm(c.as_of)}.`, `Cash is not confirmed by a bank statement: the owner stated ${sp(c.opening)} RUB on ${dm(c.as_of)}.`)\n                                                : T(`Касса ${sp(c.opening)} ₽ на ${dm(c.as_of)}.`, `Cash ${sp(c.opening)} RUB on ${dm(c.as_of)}.`);\n    const nx = c.next_out;\n    if (nx) {\n      const need = -Number(nx.outflow_rub); const before = Number(nx.balance_before);\n      s += T(` Ближайший крупный платёж ${dm(nx.day)} (${t1(need)} ${K}): по плану до него будет ~${t1(before)} ${K} — ${before >= need ? 'хватает' : 'не хватает ~' + t1(need - before) + ' ' + K}.`,\n             ` Next large payment ${dm(nx.day)} (${t1(need)} ${K}): planned balance before it ~${t1(before)} ${K} — ${before >= need ? 'covered' : 'short by ~' + t1(need - before) + ' ' + K}.`);\n    }\n    if (c.min_30d) s += T(` Минимум за 30 дней: ${sgn(c.min_30d.balance_rub, t1)} ${K} (${dm(c.min_30d.day)}).`, ` 30-day minimum: ${sgn(c.min_30d.balance_rub, t1)} ${K} (${dm(c.min_30d.day)}).`);\n    P(s + T(' Поступления от маркетплейса — оценка.', ' Marketplace payouts are estimates.'));\n  }\n\n  // Footer: data checks -------------------------------------------------------\n  blank();\n  const cv = f.coverage_30d || {};\n  P(T(`Сверка заказов из двух API за 30 дн.: совпало ${cv.MATCH || 0}, расхождение ${cv.DIFF || 0}, без второго источника ${cv.NO_SECOND_SOURCE || 0}.`,\n      `Order reconciliation of two APIs, 30 days: match ${cv.MATCH || 0}, diff ${cv.DIFF || 0}, no second source ${cv.NO_SECOND_SOURCE || 0}.`), false);\n  P(T('Все рекомендации расчётные: ничего не включается и не меняется автоматически.', 'All recommendations are calculations: nothing is switched on or changed automatically.'));\n\n  let text = L.map((x) => x[0]).join('\\n');\n  if (text.length > MAX) { // drop optional lines from the end, never protected ones\n    for (let i = L.length - 1; i >= 0 && L.map((x) => x[0]).join('\\n').length > MAX; i--) if (!L[i][1]) L.splice(i, 1);\n    text = L.map((x) => x[0]).join('\\n');\n  }\n  const parts = [];\n  if (text.length <= 4096) parts.push(text);\n  else { let cur = ''; for (const line of text.split('\\n')) { if (cur && (cur + '\\n' + line).length > 4000) { parts.push(cur); cur = line; } else cur = cur ? cur + '\\n' + line : line; } if (cur) parts.push(cur); }\n  return { text, parts, chars: text.length };\n}\n\n// ---- n8n glue for the \"Build Report Message\" Code node (appended after renderReport by inline_renderer_into_workflow.py) ----\nconst REPORT_LANG = 'ru';                       // 'ru' | 'en'\nconst FORBIDDEN = /(analytics\\.|raw\\.|ops\\.|SELECT |n8n|workflow|undefined|NaN)/;   // never leak internals or broken numbers\nconst ctx = $('Prepare Report').first().json;\nlet facts = {}; let factsError = null;\ntry {\n  const r = $('Read Report Facts').first().json || {};\n  facts = r.j || {};\n  if (r.error) factsError = String(r.message || (r.error && (r.error.message || r.error.description)) || 'error').slice(0, 200);\n} catch (e) { factsError = String(e).slice(0, 200); }\nif (!facts.today) facts.today = ctx.todayMsk;\nconst out = renderReport(facts, { lang: REPORT_LANG, mode: 'LIVE' });\nlet replyText = out.text;\n// Never drop protected caveats to force a live send. The actual length gate blocks oversized text.\nif (factsError) replyText += (REPORT_LANG === 'en' ? '\\n\\nPart of the data could not be read; sections may be incomplete.' : '\\n\\nЧасть данных не прочиталась — разделы могут быть неполными.');\nconst live = facts.live_send || {};\nconst liveAllowedByFlag = Number(live.value) === 1 && live.status === 'OWNER_ACCEPTED' && !factsError;\nreturn [{ json: { ...ctx, kind: 'REPORT', replyText, forbiddenWords: FORBIDDEN.test(replyText), messageChars: replyText.length,\n  messageParts: out.parts.length, liveAllowedByFlag: liveAllowedByFlag && ctx.triggerType === 'SCHEDULED',\n  factsDigest: { facts_error: factsError, last_order_day: ((facts.orders || []).slice(-1)[0] || {}).d || null,\n    freshness: Object.fromEntries(Object.entries(facts.freshness || {}).map(([k, v]) => [k, v.freshness])), chars: replyText.length } } }];\n"
+      },
+      "name": "Build Report Message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        720,
+        180
+      ],
+      "id": "b6ebe6ce-20b9-5ff3-bf68-b57cee0ad160"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const crypto = require('crypto');\nconst q = (v) => (v === null || v === undefined) ? 'NULL' : \"'\" + String(v).replace(/'/g, \"''\") + \"'\";\nconst x = $input.first().json;\nconst sha = crypto.createHash('sha256').update(x.replyText, 'utf8').digest('hex');\n// Every run is written to the ledger as DRY_RUN_NOT_SENT first (scheduled: one row per day; manual: one row per execution).\nconst idem = x.triggerType === 'SCHEDULED' ? `${x.kind}-${x.todayMsk}-SCHEDULED-DRY` : `${x.kind}-DRY-${x.n8nExecutionId}`;\nconst sql = `WITH ins AS (\nINSERT INTO ops.report_delivery (idem_key, event, as_of_date, message_text, message_sha256)\nVALUES (${q(idem)}, 'DRY_RUN_NOT_SENT', ${q(x.todayMsk)}::date, ${q(x.replyText)}, ${q(sha)})\nON CONFLICT (idem_key, event) DO NOTHING\nRETURNING row_id, event, idem_key)\nSELECT row_id, event, idem_key, 'INSERTED' AS action FROM ins\nUNION ALL\nSELECT row_id, event, idem_key, 'EXISTS' FROM ops.report_delivery WHERE idem_key = ${q(idem)} AND event = 'DRY_RUN_NOT_SENT' AND NOT EXISTS (SELECT 1 FROM ins)`;\nreturn [{ json: { ...x, messageSha256: sha, idemKey: idem, ledgerSql: sql } }];"
+      },
+      "name": "Build Ledger SQL",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1200,
+        180
+      ],
+      "id": "a53ce906-6cee-5a83-b2bc-5a5f3b3eba1f"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ $json.ledgerSql }}",
+        "options": {}
+      },
+      "name": "Write Dry-Run Ledger",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1440,
+        180
+      ],
+      "alwaysOutputData": true,
+      "notes": "Credential required: postgres (attach your own after import)",
+      "id": "31fc01a5-0566-5393-a7b0-db9a02a58235"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const x = $('Build Ledger SQL').first().json;\nconst led = $input.first().json || {};\nreturn [{ json: {\n  kind: x.kind, replyText: x.replyText, asOfDate: x.todayMsk, triggerType: x.triggerType,\n  liveAllowedByFlag: !!x.liveAllowedByFlag, forbiddenWords: !!x.forbiddenWords,\n  messageChars: String(x.replyText).length, messageSha256: x.messageSha256,\n  ledger: { row_id: led.row_id || null, event: led.event || null, action: led.action || null, idem_key: x.idemKey }\n} }];"
+      },
+      "name": "Return Report",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1680,
+        180
+      ],
+      "id": "cfe65e3d-3084-5268-a6d0-3a7f822969f2"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "18e7ad0a-74a6-58e5-b51d-82fc970fe85c",
+              "leftValue": "={{ $json.liveAllowedByFlag === true && $json.triggerType === 'SCHEDULED' && $json.forbiddenWords !== true && String($json.replyText || '').trim().length > 0 && String($json.replyText || '').length <= 4096 }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "name": "IF Live Send Allowed",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1900,
+        180
+      ],
+      "id": "e2f7809f-a668-5a8e-bebb-2df67ddec240"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ (() => { const q = v => v == null ? 'NULL' : \"'\" + String(v).replace(/'/g, \"''\") + \"'\"; const r = $('Return Report').first().json; const k = 'REPORT-' + r.asOfDate + '-LIVE'; return `WITH ins AS (INSERT INTO ops.report_delivery (idem_key, event, as_of_date, message_text, message_sha256) VALUES (${q(k)}, 'CLAIM', ${q(r.asOfDate)}::date, ${q(r.replyText)}, ${q(r.messageSha256)}) ON CONFLICT (idem_key, event) DO NOTHING RETURNING row_id) SELECT row_id FROM ins`; })() }}",
+        "options": {}
+      },
+      "name": "Claim Send (once per day)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        2120,
+        180
+      ],
+      "alwaysOutputData": true,
+      "notes": "Credential required: postgres (attach your own after import)",
+      "id": "4f1f0fd5-6b0d-59b6-adcd-9010603cb4a6"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "90181260-9779-5fab-a684-7f68e447c69e",
+              "leftValue": "={{ !!$json.row_id }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "name": "IF Claimed",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2340,
+        180
+      ],
+      "id": "d905c432-98fa-50a4-b04a-0909bac19622"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $env.TELEGRAM_CHAT_ID }}",
+        "text": "={{ $('Return Report').first().json.replyText }}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "name": "Send Report to Owner",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        2560,
+        180
+      ],
+      "notes": "Credential required: telegramApi (attach your own after import)",
+      "id": "623f78d5-c2a0-585a-a080-0e1fb7bbf5bf"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ (() => { const q = v => v == null ? 'NULL' : \"'\" + String(v).replace(/'/g, \"''\") + \"'\"; const r = $('Return Report').first().json; const k = 'REPORT-' + r.asOfDate + '-LIVE'; return `INSERT INTO ops.report_delivery (idem_key, event, as_of_date, message_text, message_sha256) VALUES (${q(k)}, 'SENT', ${q(r.asOfDate)}::date, ${q(r.replyText)}, ${q(r.messageSha256)}) ON CONFLICT (idem_key, event) DO NOTHING RETURNING row_id`; })() }}",
+        "options": {}
+      },
+      "name": "Write SENT to Ledger",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        2780,
+        180
+      ],
+      "onError": "continueRegularOutput",
+      "alwaysOutputData": true,
+      "notes": "Credential required: postgres (attach your own after import)",
+      "id": "b76b284b-d678-5874-a52d-bb27451ddc6a"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT j FROM analytics.v_report_facts;",
+        "options": {}
+      },
+      "name": "Read Report Facts",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        480,
+        180
+      ],
+      "onError": "continueRegularOutput",
+      "alwaysOutputData": true,
+      "notes": "Credential required: postgres (attach your own after import)",
+      "id": "24ebf64e-0a31-5fbe-bf7e-2be498190e9d"
+    }
+  ],
+  "connections": {
+    "Daily 09:00 MSK": {
+      "main": [
+        [
+          {
+            "node": "Prepare Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Manual Dry Run": {
+      "main": [
+        [
+          {
+            "node": "Prepare Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "Prepare Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Report": {
+      "main": [
+        [
+          {
+            "node": "Read Report Facts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Report Facts": {
+      "main": [
+        [
+          {
+            "node": "Build Report Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Report Message": {
+      "main": [
+        [
+          {
+            "node": "Build Ledger SQL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Ledger SQL": {
+      "main": [
+        [
+          {
+            "node": "Write Dry-Run Ledger",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write Dry-Run Ledger": {
+      "main": [
+        [
+          {
+            "node": "Return Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Return Report": {
+      "main": [
+        [
+          {
+            "node": "IF Live Send Allowed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Live Send Allowed": {
+      "main": [
+        [
+          {
+            "node": "Claim Send (once per day)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Claim Send (once per day)": {
+      "main": [
+        [
+          {
+            "node": "IF Claimed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Claimed": {
+      "main": [
+        [
+          {
+            "node": "Send Report to Owner",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Send Report to Owner": {
+      "main": [
+        [
+          {
+            "node": "Write SENT to Ledger",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "saveManualExecutions": true,
+    "timezone": "Europe/Moscow",
+    "executionOrder": "v1"
+  },
+  "active": false
+}

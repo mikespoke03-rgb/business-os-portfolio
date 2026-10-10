@@ -253,4 +253,3 @@ All recommendations are calculations: nothing is switched on or changed automati
 ## License
 
 MIT — see [LICENSE](LICENSE).
-

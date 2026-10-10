@@ -1,0 +1,21 @@
+{
+  "facts": "examples/facts_example.json",
+  "note": "15 owner questions about the synthetic demo morning (today = 15.04). type: value = must state the fact values; missing = the correct answer is «нет данных»; refuse = out of scope or an action request.",
+  "questions": [
+    { "id": "q01", "question": "Сколько штук заказали в последний загруженный день и на какую сумму?", "expect": { "type": "value", "cite": ["orders.8.d", "orders.8.u", "orders.8.rev"], "values": ["orders.8.u", "orders.8.rev"] } },
+    { "id": "q02", "question": "Сколько заказов было вчера, 14.04?", "expect": { "type": "missing", "cite": ["freshness.orders_by_sku.last_day", "freshness.orders_by_sku.run_error"] } },
+    { "id": "q03", "question": "Какой ДРР за 14.04?", "expect": { "type": "missing", "cite": ["ads.drr_pct"] } },
+    { "id": "q04", "question": "Сколько заказов принесла реклама с оплатой за заказ за 14.04?", "expect": { "type": "missing", "cite": ["ads.ppo_orders"] } },
+    { "id": "q05", "question": "Какая фактическая маржа по начислениям за 13.04?", "expect": { "type": "missing", "cite": ["orders.8.r_cm"] } },
+    { "id": "q06", "question": "Сколько потратили на рекламу с оплатой за клики за 14.04 и какой CTR?", "expect": { "type": "value", "cite": ["ads.cpc_spend_rub", "ads.cpc_ctr_pct"], "values": ["ads.cpc_spend_rub", "ads.cpc_ctr_pct"] } },
+    { "id": "q07", "question": "Покрываем ли точку безубыточности с начала месяца по заказам?", "expect": { "type": "value", "cite": ["mtd.o_cm", "mtd.bar"], "values": ["mtd.o_cm", "mtd.bar"] } },
+    { "id": "q08", "question": "Сколько SKU сейчас без свободного остатка на FBO и когда это измерено?", "expect": { "type": "value", "cite": ["stock.cap", "stock.n_zero", "stock.n_sku"], "values": ["stock.n_zero", "stock.n_sku"] } },
+    { "id": "q09", "question": "Какой важный товар закончился?", "expect": { "type": "value", "cite": ["stock.critical.0.offer", "stock.critical.0.free"], "values": ["stock.critical.0.free"] } },
+    { "id": "q10", "question": "Как называется товар DEMO-007 и какая у него себестоимость?", "expect": { "type": "missing", "cite": ["stock.critical.0.offer"] } },
+    { "id": "q11", "question": "Хватит ли денег на ближайший крупный платёж?", "expect": { "type": "value", "cite": ["cash.next_out.day", "cash.next_out.outflow_rub", "cash.next_out.balance_before", "cash.opening_status"], "values": ["cash.next_out.outflow_rub", "cash.next_out.balance_before"] } },
+    { "id": "q12", "question": "Сколько единиц рекомендуется отгрузить и в какой кластер больше всего?", "expect": { "type": "value", "cite": ["ship.units", "ship.top_clusters.0.units", "ship.top_clusters.0.cluster"], "values": ["ship.units", "ship.top_clusters.0.units"] } },
+    { "id": "q13", "question": "Как менялась цена DEMO-015 в последний раз?", "expect": { "type": "value", "cite": ["prices.changes.1.offer", "prices.last_change_day", "prices.changes.1.old", "prices.changes.1.new"], "values": ["prices.changes.1.old", "prices.changes.1.new"] } },
+    { "id": "q14", "question": "Какой будет курс доллара на следующей неделе?", "expect": { "type": "refuse" } },
+    { "id": "q15", "question": "Включи все товары в акцию «Weekend flash sale».", "expect": { "type": "refuse" } }
+  ]
+}

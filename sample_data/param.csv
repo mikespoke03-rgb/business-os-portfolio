@@ -1,0 +1,20 @@
+param_key,param_value,status,note,set_at
+commission_pct,0.28,ESTIMATE,marketplace fee rate used for the order model,2026-01-05T06:00:42Z
+acquiring_pct,0.015,ESTIMATE,payment processing,2026-01-05T06:00:23Z
+logistics_rub_per_unit,95,ESTIMATE,average FBO logistics per unit,2026-01-05T06:00:03Z
+ppo_pct,0.05,OWNER_ACCEPTED,pay-per-order ads rate on attributed sales,2026-01-05T06:00:37Z
+vat_rate,0.22,OWNER_ACCEPTED,VAT rate,2026-01-05T06:00:34Z
+vat_base_share,0.5,ESTIMATE,share of the seller price treated as VAT base in the model,2026-01-05T06:00:41Z
+buyout_rate,0.8,ESTIMATE,share of ordered units that end up bought,2026-01-05T06:00:24Z
+fixed_costs_month_rub,380000,OWNER_ACCEPTED,fixed operating costs per month,2026-01-05T06:00:32Z
+financing_cost_month_rub,70000,OWNER_ACCEPTED,interest per month (outside the P&L but inside break-even),2026-01-05T06:00:42Z
+promo_min_margin_pct,15,OWNER_ACCEPTED,below this margin at the promo price -> DONT,2026-01-05T06:00:13Z
+promo_target_margin_pct,25,OWNER_ACCEPTED,between min and target -> OWNER_DECIDES,2026-01-05T06:00:17Z
+promo_max_required_uplift_pct,30,OWNER_ACCEPTED,required sales uplift above this -> OWNER_DECIDES,2026-01-05T06:00:10Z
+cover_days_target,45,OWNER_ACCEPTED,stock cover to plan shipments for,2026-01-05T06:00:17Z
+order_share_window_days,30,OWNER_ACCEPTED,window for cluster demand share,2026-01-05T06:00:25Z
+sku_share_min_units_90d,20,OWNER_ACCEPTED,min units for SKU-specific cluster share,2026-01-05T06:00:39Z
+orders_max_staleness_days,2,OWNER_ACCEPTED,older orders -> cluster share not trusted,2026-01-05T06:00:06Z
+critical_stock_units,5,OWNER_ACCEPTED,A/B SKUs at or below this are listed in the report,2026-01-05T06:00:15Z
+cash_opening_rub,40000,OWNER_STATED,bank balance stated by the owner (not a bank statement),2026-01-05T06:00:20Z
+report_live_send_enabled,0,DRAFT,1 + OWNER_ACCEPTED is required for a live Telegram send,2026-01-05T06:00:15Z

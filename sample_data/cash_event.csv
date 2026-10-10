@@ -1,0 +1,37 @@
+event_date,direction,label,amount_rub,status,source
+2026-04-15,IN,Marketplace payout,100100.0,ESTIMATE,payout model
+2026-04-20,OUT,Loan interest,-70000,CONFIRMED,loan schedule
+2026-04-22,IN,Marketplace payout,94500.0,ESTIMATE,payout model
+2026-04-25,OUT,Quarterly VAT,-72500.0,ESTIMATE,tax model
+2026-04-29,IN,Marketplace payout,159000.0,ESTIMATE,payout model
+2026-05-05,OUT,Payroll and contractors,-95000,PLANNED,budget
+2026-05-05,OUT,Warehouse rent and software,-38000,PLANNED,budget
+2026-05-06,IN,Marketplace payout,132000.0,ESTIMATE,payout model
+2026-05-12,IN,Retail chain payment,42400.0,ESTIMATE,invoices + payment terms
+2026-05-13,IN,Marketplace payout,127500.0,ESTIMATE,payout model
+2026-05-20,IN,Marketplace payout,108100.0,ESTIMATE,payout model
+2026-05-20,OUT,Loan interest,-70000,CONFIRMED,loan schedule
+2026-05-27,IN,Marketplace payout,158000.0,ESTIMATE,payout model
+2026-06-03,IN,Marketplace payout,158800.0,ESTIMATE,payout model
+2026-06-05,OUT,Payroll and contractors,-95000,PLANNED,budget
+2026-06-05,OUT,Warehouse rent and software,-38000,PLANNED,budget
+2026-06-10,IN,Marketplace payout,102100.0,ESTIMATE,payout model
+2026-06-12,IN,Retail chain payment,88300.0,ESTIMATE,invoices + payment terms
+2026-06-17,IN,Marketplace payout,129400.0,ESTIMATE,payout model
+2026-06-20,OUT,Loan interest,-70000,CONFIRMED,loan schedule
+2026-06-24,IN,Marketplace payout,111000.0,ESTIMATE,payout model
+2026-07-01,IN,Marketplace payout,97800.0,ESTIMATE,payout model
+2026-07-05,OUT,Payroll and contractors,-95000,PLANNED,budget
+2026-07-05,OUT,Warehouse rent and software,-38000,PLANNED,budget
+2026-07-08,IN,Marketplace payout,129200.0,ESTIMATE,payout model
+2026-07-12,IN,Retail chain payment,69600.0,ESTIMATE,invoices + payment terms
+2026-07-15,IN,Marketplace payout,107100.0,ESTIMATE,payout model
+2026-07-20,OUT,Loan interest,-70000,CONFIRMED,loan schedule
+2026-07-22,IN,Marketplace payout,139200.0,ESTIMATE,payout model
+2026-07-25,OUT,Quarterly VAT,-69200.0,ESTIMATE,tax model
+2026-07-29,IN,Marketplace payout,155900.0,ESTIMATE,payout model
+2026-08-05,IN,Marketplace payout,111000.0,ESTIMATE,payout model
+2026-08-05,OUT,Payroll and contractors,-95000,PLANNED,budget
+2026-08-05,OUT,Warehouse rent and software,-38000,PLANNED,budget
+2026-08-12,IN,Marketplace payout,155400.0,ESTIMATE,payout model
+2026-08-12,IN,Retail chain payment,80200.0,ESTIMATE,invoices + payment terms

@@ -1,0 +1,4 @@
+variant,units,batch_cost_rub,order_date,arrival_date,min_30d_rub,min_30d_date,min_13w_rub,min_13w_date,balance_at_horizon_rub,horizon_date,peak_extra_financing_rub,peak_extra_financing_date,payback_date,cash_gain_at_horizon_rub,cost_of_money_24pct_rub,cost_of_money_36pct_rub,cost_of_money_60pct_rub
+V0 no purchase,0,0,2026-04-20,2026-06-04,70100,2026-04-20,70100,2026-04-20,1642900,2026-08-12,0,,,0,0,0,0
+V1 core (A),2758,1180294,2026-04-20,2026-06-04,-283988,2026-04-20,-538394,2026-06-05,2310042,2026-08-12,1180294,2026-06-04,2026-07-28,667142,41177,61765,102942
+V2 core + extended (A+B),3833,1552113,2026-04-20,2026-06-04,-395534,2026-04-20,-910213,2026-06-05,2643757,2026-08-12,1552113,2026-06-04,2026-07-26,1000857,53456,80184,133640

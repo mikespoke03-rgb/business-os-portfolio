@@ -1,0 +1,185 @@
+{
+  "name": "Business OS - Seller price snapshot daily (08:48 MSK)",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "48 8 * * *"
+            }
+          ]
+        },
+        "timezone": "Europe/Moscow"
+      },
+      "name": "Schedule 08:48 MSK",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "65b1df55-6a76-5836-ab0c-bd74b6fc614b"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst offers=[\"DEMO-001\", \"DEMO-002\", \"DEMO-003\", \"DEMO-004\", \"DEMO-005\", \"DEMO-006\", \"DEMO-007\", \"DEMO-008\", \"DEMO-009\", \"DEMO-010\", \"DEMO-011\", \"DEMO-012\", \"DEMO-013\", \"DEMO-014\", \"DEMO-015\", \"DEMO-016\", \"DEMO-017\", \"DEMO-018\", \"DEMO-019\", \"DEMO-020\", \"DEMO-021\", \"DEMO-022\", \"DEMO-023\", \"DEMO-024\"]; // synthetic offer ids (DemoBrand); in production the list comes from the SKU master\nconst url='https://api-seller.ozon.ru/v5/product/info/prices';\nconst body={filter:{offer_id:offers,visibility:'ALL'},cursor:'',limit:100};\nreturn [{json:{url,body,meta:{nOffers:offers.length,contract:'seller_price_snapshot_daily'}}}];\n"
+      },
+      "name": "Build Prices Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        0
+      ],
+      "id": "47df3795-84f3-5323-9bce-96a2951690e6"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.url }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpCustomAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.body) }}",
+        "options": {
+          "timeout": 60000,
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "file",
+              "outputPropertyName": "raw"
+            }
+          }
+        }
+      },
+      "name": "Ozon Prices READONLY",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        480,
+        0
+      ],
+      "notes": "Credential required: httpCustomAuth (attach your own after import)",
+      "id": "cdd0e847-1f30-5ad9-92cc-16a66de0641b"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst it=$input.first();\nlet buf=null; try{buf=await this.helpers.getBinaryDataBuffer(0,'raw');}catch(e){buf=null;}\nconst status=Number(it.json?.statusCode??-1);\nif(status!==200) throw new Error('OZON_PRICES_HTTP_'+status);\nif(!buf||!buf.length) throw new Error('OZON_PRICES_EMPTY_BODY');\nconst crypto=require('crypto');\nconst sha=crypto.createHash('sha256').update(buf).digest('hex');\nconst parsed=JSON.parse(buf.toString('utf8'));\nconst items=parsed.items||[];\nif(!items.length) throw new Error('OZON_PRICES_ZERO_ITEMS');\n// business_date Europe/Moscow\nconst msk=new Date(Date.now()+3*60*60*1000);\nconst y=msk.getUTCFullYear();\nconst m=String(msk.getUTCMonth()+1).padStart(2,'0');\nconst d=String(msk.getUTCDate()).padStart(2,'0');\nconst businessDate=`${y}-${m}-${d}`;\nconst runId=`PRICE-DAILY-${y}${m}${d}`;\nconst capturedAt=new Date().toISOString();\nconst rows=[]; const rawItems=[];\nfor(const it of items){\n  const pr=it.price||{};\n  if(pr.price==null) continue;\n  const pi=it.price_indexes||{};\n  // Overall price index = price_indexes.color_index (the same value the seller dashboard shows).\n  // value = from the sub-block whose color equals the overall color (ozon > external > self); null if none matches.\n  const color=pi.color_index||null; let pival=null, pisrc=null;\n  for(const key of ['ozon_index_data','external_index_data','self_marketplaces_index_data']){\n    const block=pi[key]||{};\n    if(color && block.price_index_color===color && block.price_index_value!=null && pival==null){ pival=block.price_index_value; pisrc=key; }\n  }\n  const actions=((it.marketing_actions||{}).actions)||[];\n  rows.push({\n    business_date:businessDate,\n    offer_id:String(it.offer_id),\n    product_id:it.product_id??null,\n    seller_price_rub:pr.price,\n    marketing_seller_price_rub:pr.marketing_seller_price??null,\n    old_price_rub:pr.old_price??null,\n    min_price_rub:pr.min_price??null,\n    retail_price_rub:pr.retail_price??null,\n    net_price_rub:pr.net_price??null,\n    currency_code:pr.currency_code||'RUB',\n    vat:pr.vat??null,\n    auto_action_enabled:pr.auto_action_enabled??null,\n    auto_add_to_ozon_actions_list_enabled:pr.auto_add_to_ozon_actions_list_enabled??null,\n    ozon_actions_count:actions.length,\n    price_index_color:color,\n    price_index_value:pival,\n    captured_at_utc:capturedAt,\n    source_endpoint:'/v5/product/info/prices',\n    source_workflow_id:$workflow.id,\n    run_id:runId,\n    response_sha256:sha,\n    price_index_logic:'v5.price_indexes.color_index'+(pisrc?'; value:'+pisrc:'; value:null'),\n  });\n  rawItems.push({offer_id:String(it.offer_id), product_id:it.product_id??null, color_index:color, commissions:it.commissions??null, marketing_actions:it.marketing_actions??null, acquiring:it.acquiring??null, raw:it});\n}\nif(!rows.length) throw new Error('OZON_PRICES_NO_PARSED_ROWS');\nreturn [{json:{business_date:businessDate,run_id:runId,n_rows:rows.length,response_sha256:sha,captured_at_utc:capturedAt,source_workflow_id:$workflow.id,rows,raw_items:rawItems}}];\n"
+      },
+      "name": "Normalize Rows",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        720,
+        0
+      ],
+      "id": "61ff6ded-c64c-5efd-978a-36af82bee6d9"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "\nWITH payload AS (\n  SELECT ($1::jsonb) AS j\n),\nins AS (\n  INSERT INTO raw.seller_price_obs (\n    business_date, offer_id, product_id, seller_price_rub, marketing_seller_price_rub,\n    old_price_rub, min_price_rub, retail_price_rub, net_price_rub, currency_code, vat,\n    auto_action_enabled, auto_add_to_ozon_actions_list_enabled, ozon_actions_count,\n    price_index_color, price_index_value, captured_at, source_endpoint, source_workflow_id,\n    run_id, response_sha256, price_index_logic\n  )\n  SELECT\n    (r->>'business_date')::date,\n    r->>'offer_id',\n    NULLIF(r->>'product_id','')::bigint,\n    (r->>'seller_price_rub')::numeric,\n    NULLIF(r->>'marketing_seller_price_rub','')::numeric,\n    NULLIF(r->>'old_price_rub','')::numeric,\n    NULLIF(r->>'min_price_rub','')::numeric,\n    NULLIF(r->>'retail_price_rub','')::numeric,\n    NULLIF(r->>'net_price_rub','')::numeric,\n    COALESCE(NULLIF(r->>'currency_code',''),'RUB'),\n    NULLIF(r->>'vat','')::numeric,\n    NULLIF(r->>'auto_action_enabled','')::boolean,\n    NULLIF(r->>'auto_add_to_ozon_actions_list_enabled','')::boolean,\n    NULLIF(r->>'ozon_actions_count','')::integer,\n    NULLIF(r->>'price_index_color',''),\n    NULLIF(r->>'price_index_value','')::numeric,\n    (r->>'captured_at_utc')::timestamptz,\n    COALESCE(NULLIF(r->>'source_endpoint',''),'/v5/product/info/prices'),\n    NULLIF(r->>'source_workflow_id',''),\n    r->>'run_id',\n    NULLIF(r->>'response_sha256',''),\n    NULLIF(r->>'price_index_logic','')\n  FROM payload, jsonb_array_elements(j->'rows') AS r\n  ON CONFLICT (business_date, offer_id, run_id) DO NOTHING\n  RETURNING offer_id\n),\nins_raw AS (\n  INSERT INTO landing.seller_price_raw (business_date, run_id, offer_id, product_id, color_index, commissions, marketing_actions, acquiring, raw, captured_at, source_workflow_id, response_sha256)\n  SELECT (p.j->>'business_date')::date, p.j->>'run_id', x->>'offer_id', NULLIF(x->>'product_id','')::bigint, NULLIF(x->>'color_index',''),\n         x->'commissions', x->'marketing_actions', NULLIF(x->>'acquiring','')::numeric, x->'raw',\n         (p.j->>'captured_at_utc')::timestamptz, NULLIF(p.j->>'source_workflow_id',''), NULLIF(p.j->>'response_sha256','')\n  FROM payload p, jsonb_array_elements(p.j->'raw_items') AS x\n  WHERE x->>'offer_id' IN (SELECT offer_id FROM ins)\n  RETURNING offer_id\n)\nSELECT\n  (SELECT j->>'business_date' FROM payload) AS business_date,\n  (SELECT j->>'run_id' FROM payload) AS run_id,\n  (SELECT (j->>'n_rows')::int FROM payload) AS n_rows_in,\n  (SELECT count(*)::int FROM ins) AS n_inserted,\n  (SELECT count(*)::int FROM ins_raw) AS n_raw_inserted;\n",
+        "options": {
+          "queryReplacement": "={{ JSON.stringify($json) }}"
+        }
+      },
+      "name": "Insert Neon Append-Only",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        960,
+        0
+      ],
+      "notes": "Credential required: postgres (attach your own after import)",
+      "id": "773bb3d5-8965-5e2f-aa27-cf8e76e96f12"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst row=$input.first().json;\nreturn [{json:{\n  status:'SUCCEEDED',\n  contract:'seller_price_snapshot_daily',\n  business_date:row.business_date,\n  run_id:row.run_id,\n  n_rows_in:row.n_rows_in,\n  n_inserted:row.n_inserted,\n  n_raw_inserted:row.n_raw_inserted,\n  note:'append-only raw.seller_price_obs; READONLY Ozon prices; no import/prices write'\n}}];\n"
+      },
+      "name": "Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1200,
+        0
+      ],
+      "id": "31d44a2e-a418-59ba-be81-84f0ff6eea87"
+    }
+  ],
+  "connections": {
+    "Schedule 08:48 MSK": {
+      "main": [
+        [
+          {
+            "node": "Build Prices Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Prices Request": {
+      "main": [
+        [
+          {
+            "node": "Ozon Prices READONLY",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ozon Prices READONLY": {
+      "main": [
+        [
+          {
+            "node": "Normalize Rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Rows": {
+      "main": [
+        [
+          {
+            "node": "Insert Neon Append-Only",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert Neon Append-Only": {
+      "main": [
+        [
+          {
+            "node": "Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "timezone": "Europe/Moscow",
+    "executionOrder": "v1"
+  },
+  "active": false
+}

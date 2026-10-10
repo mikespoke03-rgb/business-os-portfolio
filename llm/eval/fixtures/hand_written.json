@@ -1,0 +1,23 @@
+{
+  "source": "HAND_WRITTEN_FIXTURE",
+  "warning": "These answers were written by hand in the expected format to exercise the grader. They are NOT model outputs and prove nothing about a model. Kept as positive grader fixtures (tests/llm_grader.test.js). CI eval uses llm/eval/cassettes/grok_bot.json.",
+  "model": null,
+  "recorded_at": null,
+  "answers": {
+    "q01": "Последний загруженный день — 13.04 [факт: orders.8.d]: заказали 77 шт [факт: orders.8.u] на 112,6 тыс. ₽ [факт: orders.8.rev].",
+    "q02": "За 14.04 [факт: freshness.orders_by_sku.expected_day] нет данных: последний загруженный день 13.04 [факт: freshness.orders_by_sku.last_day], сегодняшняя загрузка не прошла (HTTP 429 [факт: freshness.orders_by_sku.run_error]).",
+    "q03": "ДРР за 14.04 [факт: ads.stat_day] — нет данных [факт: ads.drr_pct]: заказы этого дня не загружены, последний день 13.04 [факт: freshness.orders_by_sku.last_day].",
+    "q04": "Нет данных [факт: ads.ppo_orders]: отчёта по оплате за заказ за 14.04 [факт: ads.stat_day] нет [факт: ads.ppo_status]. Это неизвестно, а не ноль.",
+    "q05": "По начислениям за 13.04 [факт: orders.8.d] пока нет данных [факт: orders.8.r_cm]: начисления загружены только по 12.04 [факт: freshness.realization.last_day].",
+    "q06": "За 14.04 [факт: ads.stat_day] расход на оплату за клики — 4 278 ₽ [факт: ads.cpc_spend_rub], CTR 2,8% [факт: ads.cpc_ctr_pct].",
+    "q07": "Да: с начала месяца по заказам вклад 447,9 тыс. ₽ [факт: mtd.o_cm] при пороге 195 тыс. ₽ [факт: mtd.bar] за 13 дней [факт: mtd.n], это около 230% порога. Ставки модельные, это оценка.",
+    "q08": "По снимку 15.04 07:15 [факт: stock.cap] без свободного остатка 2 из 24 SKU [факт: stock.n_zero] [факт: stock.n_sku].",
+    "q09": "DEMO-007 [факт: stock.critical.0.offer]: свободный остаток 0 шт [факт: stock.critical.0.free] при пороге внимания 5 шт [факт: stock.crit_units].",
+    "q10": "По DEMO-007 [факт: stock.critical.0.offer] названия и себестоимости в доступных мне фактах нет данных: они не передаются модели.",
+    "q11": "По плану хватает: платёж 20.04 [факт: cash.next_out.day] на 70 тыс. ₽ [факт: cash.next_out.outflow_rub], до него ожидается около 140 тыс. ₽ [факт: cash.next_out.balance_before]. Остаток кассы указан владельцем и не подтверждён выпиской [факт: cash.opening_status].",
+    "q12": "Рекомендация — 926 шт [факт: ship.units] под 45 дней спроса [факт: ship.cover_days]; больше всего в Moscow [факт: ship.top_clusters.0.cluster] — 311 шт [факт: ship.top_clusters.0.units]. Это рекомендация, не заявка на поставку.",
+    "q13": "Цена DEMO-015 [факт: prices.changes.1.offer] выросла 08.04 [факт: prices.last_change_day] с 1 910 ₽ [факт: prices.changes.1.old] до 2 050 ₽ [факт: prices.changes.1.new].",
+    "q14": "Вне области: в фактах отчёта нет курсов валют и прогнозов.",
+    "q15": "Вне области: я не меняю участие в акциях. Решение принимает владелец, отчёт даёт только рекомендации."
+  }
+}

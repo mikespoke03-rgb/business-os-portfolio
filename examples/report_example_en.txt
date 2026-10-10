@@ -1,0 +1,32 @@
+DemoBrand morning report · 15.04, Wednesday · draft, not sent to Telegram
+
+1) Orders — no data for 14.04; last loaded day 13.04 (loaded 14.04 05:30). Today's load failed: HTTP 429 after 4 retries.
+77 units, 112.6 k RUB (cancelled 4). vs 12.04: +7 units, +7.5 k RUB. vs the 7-day average before it (78.6 units; 120.8 k RUB/day): −2% units, −7% revenue.
+
+2) Margin (two different numbers — never added up)
+Orders of 13.04, if everything is bought out: +30.7 k RUB — after COGS, marketplace fees and logistics (model rates), VAT (model) and ads 6.9k. Adjusted for buyout rate: +23.2 k RUB.
+Realised accruals for 12.04 (sold 47 units for 75.8 k RUB): +13.5 k RUB — actual marketplace charges, COGS and VAT by model. No accruals yet for 13.04.
+
+3) Break-even: 15 k RUB of contribution needed per day (fixed costs + financing, divided by days in month)
+13.04 by orders: 205% (30.7 of 15). Month to date (13 days): by orders 230%, ahead by 252.9 k RUB; by realised accruals (12 days) 120%, ahead by 35.8 k RUB.
+Estimates: fee and logistics rates, VAT and COGS are model parameters, not actuals.
+
+4) Ads for 14.04
+Cost-per-click: 4.3k RUB; 11.8k impressions, CTR 2.8%, CPC 12.9 RUB, 17 ad orders. Matches the ad-account expense ledger.
+Pay-per-order: expense ledger 0.9k RUB; no report for 14.04 — orders from this model are unknown (not zero).
+ACoS for 14.04 is not computed: complete ad spend or nonzero order revenue is unavailable. Month to date: 75.3k RUB, ACoS 4.7% (days with loaded orders).
+
+5) Prices and promotions
+Seller price: snapshot 15.04 08:48 (24 SKUs) vs 14.04: no changes. Last changes 08.04: 2 SKUs (all up), e.g. Clay mask 100 ml 1,380→1,560, Sun stick SPF50 18 g 1,910→2,050.
+14 of 24 SKUs have a promo price below the regular price.
+Promotions (measured 15.04 08:41): 3 actions, 13 SKU entries participating. Next start 17.04 "Weekend flash sale": 9 SKUs — enter 2, don't 3, owner decides 4. Auto-add on 16.04: 6 SKUs, 2 of them "don't"; margin −1.5 k RUB/day at current sales. Estimate only; the sales uplift is unknown; nothing is joined automatically.
+
+6) Stock and shipments
+FBO stock 15.04 07:15: 2 of 24 SKUs have no free stock. Key (A/B) SKUs at 0–5 units: Eye cream 20 ml — 0.
+Shipments for 45 days of demand (cluster orders to 14.04, stock 15.04): 926 units in 137 SKU×cluster lines; largest — Moscow 311, Kazakhstan 97, Siberia 96, South 83. A recommendation, not a shipment request.
+
+7) Cash
+Cash is not confirmed by a bank statement: the owner stated 40,000 RUB on 12.04. Next large payment 20.04 (70 k RUB): planned balance before it ~140.1 k RUB — covered. 30-day minimum: +70.1 k RUB (20.04). Marketplace payouts are estimates.
+
+Order reconciliation of two APIs, 30 days: match 27, diff 2, no second source 1.
+All recommendations are calculations: nothing is switched on or changed automatically.

@@ -1,0 +1,16 @@
+.env
+*.env
+!.env.example
+__pycache__/
+*.pyc
+.venv/
+backups/
+receipts/
+*.log
+.DS_Store
+# raw n8n exports and execution dumps may contain credentials ids, pinData and real data
+*_raw_export.json
+exec_*.json
+demo-output/
+site/dist/
+node_modules/

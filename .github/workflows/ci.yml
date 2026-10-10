@@ -1,0 +1,77 @@
+name: Portfolio checks
+on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16-bookworm
+        env:
+          POSTGRES_DB: bos_portfolio_demo
+          POSTGRES_USER: demo
+          POSTGRES_PASSWORD: demo-only-not-a-secret
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U demo -d bos_portfolio_demo"
+          --health-interval 2s --health-timeout 3s --health-retries 30
+    env:
+      DATABASE_URL: postgresql://demo@127.0.0.1:5432/bos_portfolio_demo
+      PGPASSWORD: demo-only-not-a-secret
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+      - run: pip install -r requirements.txt
+      - name: Syntax, renderer, owner Q&A tests and eval gate, drift detection
+        run: python scripts/check.py
+      - name: npm test (Node tests + recorded-answer eval)
+        run: npm test
+      - name: Real SQL pipeline and demo artifacts
+        run: python scripts/run_demo.py --no-generate
+      - name: Demo artifacts are reproducible (UTC database, committed examples unchanged)
+        run: git diff --exit-code -- examples/
+      - name: SQL business-rule regression
+        run: python scripts/check.py --sql
+      - name: Install checksum-verified Gitleaks
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=8.30.1
+          temp_dir=$(mktemp -d)
+          cd "$temp_dir"
+          base="https://github.com/gitleaks/gitleaks/releases/download/v${version}"
+          archive="gitleaks_${version}_linux_x64.tar.gz"
+          curl -fsSLO "$base/$archive"
+          curl -fsSLO "$base/gitleaks_${version}_checksums.txt"
+          grep -E "  ${archive}$" "gitleaks_${version}_checksums.txt" | sha256sum --check --strict
+          tar -xzf "$archive" gitleaks
+          sudo install -m 755 gitleaks /usr/local/bin/gitleaks
+      - name: Required working-tree and full-history secret scan
+        run: python scripts/scan_secrets.py
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: synthetic-demo
+          path: examples/
+  container-demo:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Run isolated one-command demo
+        run: docker compose up --build --abort-on-container-exit --exit-code-from demo
+      - name: Stop disposable services
+        if: always()
+        run: docker compose down
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: container-demo
+          path: demo-output/

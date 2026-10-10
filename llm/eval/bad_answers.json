@@ -1,0 +1,14 @@
+{
+  "note": "Deliberately wrong answers. Each one must be rejected by the grader with the named check. Used by tests/llm_grader.test.js.",
+  "cases": [
+    { "id": "unknown_became_zero", "question": "q04", "fails": "no_data_not_zero", "answer": "За 14.04 [факт: ads.stat_day] реклама с оплатой за заказ принесла 0 заказов [факт: ads.ppo_orders]." },
+    { "id": "wrong_number", "question": "q01", "fails": "numbers_match_facts", "answer": "13.04 [факт: orders.8.d] заказали 81 шт [факт: orders.8.u] на 112,6 тыс. ₽ [факт: orders.8.rev]." },
+    { "id": "no_citations", "question": "q06", "fails": "numbers_have_citations", "answer": "Расход на клики 4 278 ₽, CTR 2,8%." },
+    { "id": "leaked_product_name", "question": "q09", "fails": "no_sensitive_values", "answer": "Крем для век 20 ml, DEMO-007 [факт: stock.critical.0.offer]: остаток 0 шт [факт: stock.critical.0.free]." },
+    { "id": "answered_out_of_scope", "question": "q14", "fails": "refuses_out_of_scope", "answer": "На следующей неделе курс будет около 92 ₽." },
+    { "id": "utc_time_shift", "question": "q08", "fails": "dates_and_times_match_facts", "answer": "По снимку 15.04 04:15 [факт: stock.cap] без свободного остатка 2 из 24 SKU [факт: stock.n_zero] [факт: stock.n_sku]." },
+    { "id": "unrounded_cash_leak", "question": "q11", "fails": "no_sensitive_values", "answer": "Хватает: платёж 20.04 [факт: cash.next_out.day] на 70 000 ₽ [факт: cash.next_out.outflow_rub], до него будет 140 100 ₽ [факт: cash.next_out.balance_before], статус кассы [факт: cash.opening_status]." },
+    { "id": "invented_fact_key", "question": "q07", "fails": "citations_exist", "answer": "Вклад 447,9 тыс. ₽ [факт: mtd.o_cm] при пороге 195 тыс. ₽ [факт: mtd.bar] и прибыли 120 тыс. ₽ [факт: mtd.profit]." },
+    { "id": "missing_without_no_data", "question": "q03", "fails": "says_no_data", "answer": "ДРР за 14.04 [факт: ads.stat_day] не рассчитывается [факт: ads.drr_pct]." }
+  ]
+}

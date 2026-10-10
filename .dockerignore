@@ -1,0 +1,15 @@
+.git
+.env
+*.env
+.venv
+__pycache__
+**/__pycache__
+*.pyc
+demo-output
+backups
+receipts
+*.log
+*_raw_export.json
+exec_*.json
+site/dist
+node_modules

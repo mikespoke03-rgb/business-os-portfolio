@@ -1,0 +1,1993 @@
+{
+  "name": "Business OS - Promo read sink daily (08:40 MSK, read-only)",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "40 8 * * *"
+            }
+          ]
+        }
+      },
+      "name": "Daily Promo 08:40",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        300
+      ],
+      "id": "b66ff478-6a94-5633-8666-fcbd5e7bbde4"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst execId=String($execution.id||Date.now()); const runId='PROMO-'+execId;\nconst sql=\"INSERT INTO landing.promo_run_event (run_id, event, status, detail) VALUES ('\"+runId+\"','STARTED','RUNNING','{\\\"workflow\\\":\\\"promo_read_daily\\\",\\\"mode\\\":\\\"\"+$execution.mode+\"\\\"}'::jsonb)\";\nreturn [{json:{run_id:runId, sql}}];\n",
+        "mode": "runOnceForAllItems"
+      },
+      "name": "Init",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        200,
+        300
+      ],
+      "id": "a63cbddd-58c2-50fd-bfbb-2df642044c1f"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ $json.sql }}",
+        "options": {}
+      },
+      "name": "Insert Started",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        400,
+        300
+      ],
+      "notes": "Credential required: postgres (attach your own after import)",
+      "id": "e59c5a8d-bcd7-55a9-8fd7-e56510eeadf9"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst B='https://api-seller.ozon.ru';\nreturn [\n {json:{key:'actions', base:'actions', endpoint:'/v1/actions', method:'GET', url:B+'/v1/actions', body:null, action_id:null}},\n];\n",
+        "mode": "runOnceForAllItems"
+      },
+      "name": "A Q1",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        900,
+        300
+      ],
+      "id": "14eebc0d-acd2-5741-a5a0-7801566191c4"
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $json.url }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpCustomAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": false,
+        "options": {
+          "timeout": 60000,
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 1500
+            }
+          },
+          "response": {
+            "response": {
+              "neverError": true,
+              "fullResponse": true,
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "name": "A HTTP1",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1100,
+        300
+      ],
+      "onError": "continueRegularOutput",
+      "alwaysOutputData": true,
+      "notes": "Credential required: httpCustomAuth (attach your own after import)",
+      "id": "0bb2d2ec-56e1-574a-ad30-399e41096410"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nfunction unwrap(j){ const raw=(j&&j.raw)?j.raw:(j||{}); let status=Number(raw.statusCode||raw.status||0); let body=raw.body!==undefined?raw.body:raw;\n  if(typeof body==='string'){ try{ body=JSON.parse(body);}catch(e){} }\n  if(body&&typeof body==='object'&&body.body&&(body.statusCode||body.status)){ status=Number(body.statusCode||body.status||status); body=body.body; }\n  if(!status && j && j.error) status=0; return {status, body: body||{}}; }\n\nfunction followUps(rq, body){\n  if(!/seller-actions\\/list$/.test(rq.endpoint)) return [];\n  const B='https://api-seller.ozon.ru'; const out=[];\n  for(const a of (body.actions||[])){ const id=Number(a.action_id); if(!id) continue; const base='seller-products:'+id; out.push({key:base, base, endpoint:'/v1/seller-actions/products/list', method:'POST', url:B+'/v1/seller-actions/products/list', body:{action_id:id, limit:100}, action_id:id, tries:0}); }\n  return out; }\nfunction nextPage(rq, body){\n  const b=rq.body||{}; const page=(rq.page||1)+1; if(page>10) return null;\n  if(/\\/v2\\/actions\\/(products|candidates)$/.test(rq.endpoint)){ const n=(body.products||[]).length; if(n>=b.limit && body.last_id) return {...rq, key:rq.base+'#p'+page, page, body:{...b, last_id:String(body.last_id)}}; return null; }\n  if(/auto-add\\/products\\/list$/.test(rq.endpoint)){ const n=(body.products||[]).length; const tot=Number(body.total||0); if(n>=b.limit && (b.offset+n)<tot) return {...rq, key:rq.base+'#p'+page, page, body:{...b, offset:b.offset+n}}; return null; }\n  if(/seller-actions\\/products\\/list$/.test(rq.endpoint)){ if(body.has_next && body.cursor) return {...rq, key:rq.base+'#p'+page, page, body:{...b, cursor:body.cursor}}; return null; }\n  if(/seller-actions\\/list$/.test(rq.endpoint)){ const n=(body.actions||[]).length; const tot=Number(body.total||0); if(n>=b.limit && (b.offset+n)<tot) return {...rq, key:rq.base+'#p'+page, page, body:{...b, offset:b.offset+n}}; return null; }\n  return null; }\n\nconst K=1; const MAXK=5;\nconst reqs=$('A Q1').all().map(i=>i.json);\nconst res=$input.all();\nconst byIdx=new Map(); res.forEach((it,i)=>{ const p=it.pairedItem; const idx=(p&&typeof p==='object'&&!Array.isArray(p)&&Number.isInteger(p.item))?p.item:i; if(!byIdx.has(idx)) byIdx.set(idx,it.json); });\nconst prev = K>1 ? $('A C0').first().json : {ok:[],retry:[],failed:[],log:[]};\nconst st={ok:[...prev.ok], retry:[], failed:[...prev.failed], log:[...prev.log]};\nconst at=new Date().toISOString();\nreqs.forEach((rq,i)=>{\n  if(rq.__empty) return;\n  const j=byIdx.get(i); const u=unwrap(j||{}); const status=j?u.status:0;\n  st.log.push({key:rq.key, attempt:K, status, at});\n  const tries=(rq.tries||0)+1;\n  if(status===200){ st.ok.push({req:rq, status, body:u.body, attempts:tries}); for(const fu of followUps(rq,u.body)){ if(K<MAXK) st.retry.push(fu); else st.failed.push({req:fu, status:0, attempts:0, error:'FOLLOWUP_NOT_RUN'}); } const nx=nextPage(rq,u.body); if(nx){ if(K<MAXK) st.retry.push({...nx, tries:0}); else st.failed.push({req:nx, status:0, attempts:0, error:'PAGINATION_NOT_FINISHED'}); } }\n  else if(status===429||status>=500||status===0){ if(K<MAXK) st.retry.push({...rq, tries}); else st.failed.push({req:rq, status, attempts:tries, error:'RETRIES_EXHAUSTED '+JSON.stringify(u.body||(j&&j.error)||{}).slice(0,400)}); }\n  else st.failed.push({req:rq, status, attempts:tries, error:JSON.stringify(u.body||{}).slice(0,500)});\n});\nreturn [{json:st}];\n",
+        "mode": "runOnceForAllItems"
+      },
+      "name": "A C1",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1300,
+        300
+      ],
+      "id": "63a3dda1-4c43-565f-9b6a-c464931c0b4a"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "96757f70-3d08-56f5-aab1-c201502831ef",
+              "leftValue": "={{ $json.retry.length }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "name": "A Retry?1",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1500,
+        300
+      ],
+      "id": "0dddee7e-7a21-5d51-80c0-1be933361e07"
+    },
+    {
+      "parameters": {
+        "resume": "timeInterval",
+        "amount": 20,
+        "unit": "seconds"
+      },
+      "name": "A Wait1 20s",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        1700,
+        300
+      ],
+      "id": "acb70a88-57b6-51bf-a2fe-0b90dee01e29"
+    },
+    {
+      "parameters": {
+        "jsCode": "const st=$('A C1').first().json; return st.retry.map(r=>({json:r}));",
+        "mode": "runOnceForAllItems"
+      },
+      "name": "A Q2",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1900,
+        300
+      ],
+      "id": "d79cbfc2-979d-5e5d-b05a-2739ff5e2cee"
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $json.url }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpCustomAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": false,
+        "options": {
+          "timeout": 60000,
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 1500
+            }
+          },
+          "response": {
+            "response": {
+              "neverError": true,
+              "fullResponse": true,
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "name": "A HTTP2",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2100,
+        300
+      ],
+      "onError": "continueRegularOutput",
+      "alwaysOutputData": true,
+      "notes": "Credential required: httpCustomAuth (attach your own after import)",
+      "id": "cb691766-165d-5f5d-a33d-c793898de685"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nfunction unwrap(j){ const raw=(j&&j.raw)?j.raw:(j||{}); let status=Number(raw.statusCode||raw.status||0); let body=raw.body!==undefined?raw.body:raw;\n  if(typeof body==='string'){ try{ body=JSON.parse(body);}catch(e){} }\n  if(body&&typeof body==='object'&&body.body&&(body.statusCode||body.status)){ status=Number(body.statusCode||body.status||status); body=body.body; }\n  if(!status && j && j.error) status=0; return {status, body: body||{}}; }\n\nfunction followUps(rq, body){\n  if(!/seller-actions\\/list$/.test(rq.endpoint)) return [];\n  const B='https://api-seller.ozon.ru'; const out=[];\n  for(const a of (body.actions||[])){ const id=Number(a.action_id); if(!id) continue; const base='seller-products:'+id; out.push({key:base, base, endpoint:'/v1/seller-actions/products/list', method:'POST', url:B+'/v1/seller-actions/products/list', body:{action_id:id, limit:100}, action_id:id, tries:0}); }\n  return out; }\nfunction nextPage(rq, body){\n  const b=rq.body||{}; const page=(rq.page||1)+1; if(page>10) return null;\n  if(/\\/v2\\/actions\\/(products|candidates)$/.test(rq.endpoint)){ const n=(body.products||[]).length; if(n>=b.limit && body.last_id) return {...rq, key:rq.base+'#p'+page, page, body:{...b, last_id:String(body.last_id)}}; return null; }\n  if(/auto-add\\/products\\/list$/.test(rq.endpoint)){ const n=(body.products||[]).length; const tot=Number(body.total||0); if(n>=b.limit && (b.offset+n)<tot) return {...rq, key:rq.base+'#p'+page, page, body:{...b, offset:b.offset+n}}; return null; }\n  if(/seller-actions\\/products\\/list$/.test(rq.endpoint)){ if(body.has_next && body.cursor) return {...rq, key:rq.base+'#p'+page, page, body:{...b, cursor:body.cursor}}; return null; }\n  if(/seller-actions\\/list$/.test(rq.endpoint)){ const n=(body.actions||[]).length; const tot=Number(body.total||0); if(n>=b.limit && (b.offset+n)<tot) return {...rq, key:rq.base+'#p'+page, page, body:{...b, offset:b.offset+n}}; return null; }\n  return null; }\n\nconst K=2; const MAXK=5;\nconst reqs=$('A Q2').all().map(i=>i.json);\nconst res=$input.all();\nconst byIdx=new Map(); res.forEach((it,i)=>{ const p=it.pairedItem; const idx=(p&&typeof p==='object'&&!Array.isArray(p)&&Number.isInteger(p.item))?p.item:i; if(!byIdx.has(idx)) byIdx.set(idx,it.json); });\nconst prev = K>1 ? $('A C1').first().json : {ok:[],retry:[],failed:[],log:[]};\nconst st={ok:[...prev.ok], retry:[], failed:[...prev.failed], log:[...prev.log]};\nconst at=new Date().toISOString();\nreqs.forEach((rq,i)=>{\n  if(rq.__empty) return;\n  const j=byIdx.get(i); const u=unwrap(j||{}); const status=j?u.status:0;\n  st.log.push({key:rq.key, attempt:K, status, at});\n  const tries=(rq.tries||0)+1;\n  if(status===200){ st.ok.push({req:rq, status, body:u.body, attempts:tries}); for(const fu of followUps(rq,u.body)){ if(K<MAXK) st.retry.push(fu); else st.failed.push({req:fu, status:0, attempts:0, error:'FOLLOWUP_NOT_RUN'}); } const nx=nextPage(rq,u.body); if(nx){ if(K<MAXK) st.retry.push({...nx, tries:0}); else st.failed.push({req:nx, status:0, attempts:0, error:'PAGINATION_NOT_FINISHED'}); } }\n  else if(status===429||status>=500||status===0){ if(K<MAXK) st.retry.push({...rq, tries}); else st.failed.push({req:rq, status, attempts:tries, error:'RETRIES_EXHAUSTED '+JSON.stringify(u.body||(j&&j.error)||{}).slice(0,400)}); }\n  else st.failed.push({req:rq, status, attempts:tries, error:JSON.stringify(u.body||{}).slice(0,500)});\n});\nreturn [{json:st}];\n",
+        "mode": "runOnceForAllItems"
+      },
+      "name": "A C2",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2300,
+        300
+      ],
+      "id": "353e4a4e-64b1-5449-a5ea-4ceda44c1a6d"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "a348e1de-cd0f-5fd2-a10e-fb1651be3109",
+              "leftValue": "={{ $json.retry.length }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "name": "A Retry?2",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        2500,
+        300
+      ],
+      "id": "7b6cfb93-1895-56cf-b2fb-3e3273d25e5a"
+    },
+    {
+      "parameters": {
+        "resume": "timeInterval",
+        "amount": 40,
+        "unit": "seconds"
+      },
+      "name": "A Wait2 40s",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        2700,
+        300
+      ],
+      "id": "ed8500f6-009f-589d-b87e-209c8e0fd687"
+    },
+    {
+      "parameters": {
+        "jsCode": "const st=$('A C2').first().json; return st.retry.map(r=>({json:r}));",
+        "mode": "runOnceForAllItems"
+      },
+      "name": "A Q3",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2900,
+        300
+      ],
+      "id": "b8116579-f387-51d3-b195-76615ca012fb"
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $json.url }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpCustomAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": false,
+        "options": {
+          "timeout": 60000,
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 1500
+            }
+          },
+          "response": {
+            "response": {
+              "neverError": true,
+              "fullResponse": true,
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "name": "A HTTP3",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3100,
+        300
+      ],
+      "onError": "continueRegularOutput",
+      "alwaysOutputData": true,
+      "notes": "Credential required: httpCustomAuth (attach your own after import)",
+      "id": "bb08eb2f-8472-5ca2-b314-685a7b704b9e"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nfunction unwrap(j){ const raw=(j&&j.raw)?j.raw:(j||{}); let status=Number(raw.statusCode||raw.status||0); let body=raw.body!==undefined?raw.body:raw;\n  if(typeof body==='string'){ try{ body=JSON.parse(body);}catch(e){} }\n  if(body&&typeof body==='object'&&body.body&&(body.statusCode||body.status)){ status=Number(body.statusCode||body.status||status); body=body.body; }\n  if(!status && j && j.error) status=0; return {status, body: body||{}}; }\n\nfunction followUps(rq, body){\n  if(!/seller-actions\\/list$/.test(rq.endpoint)) return [];\n  const B='https://api-seller.ozon.ru'; const out=[];\n  for(const a of (body.actions||[])){ const id=Number(a.action_id); if(!id) continue; const base='seller-products:'+id; out.push({key:base, base, endpoint:'/v1/seller-actions/products/list', method:'POST', url:B+'/v1/seller-actions/products/list', body:{action_id:id, limit:100}, action_id:id, tries:0}); }\n  return out; }\nfunction nextPage(rq, body){\n  const b=rq.body||{}; const page=(rq.page||1)+1; if(page>10) return null;\n  if(/\\/v2\\/actions\\/(products|candidates)$/.test(rq.endpoint)){ const n=(body.products||[]).length; if(n>=b.limit && body.last_id) return {...rq, key:rq.base+'#p'+page, page, body:{...b, last_id:String(body.last_id)}}; return null; }\n  if(/auto-add\\/products\\/list$/.test(rq.endpoint)){ const n=(body.products||[]).length; const tot=Number(body.total||0); if(n>=b.limit && (b.offset+n)<tot) return {...rq, key:rq.base+'#p'+page, page, body:{...b, offset:b.offset+n}}; return null; }\n  if(/seller-actions\\/products\\/list$/.test(rq.endpoint)){ if(body.has_next && body.cursor) return {...rq, key:rq.base+'#p'+page, page, body:{...b, cursor:body.cursor}}; return null; }\n  if(/seller-actions\\/list$/.test(rq.endpoint)){ const n=(body.actions||[]).length; const tot=Number(body.total||0); if(n>=b.limit && (b.offset+n)<tot) return {...rq, key:rq.base+'#p'+page, page, body:{...b, offset:b.offset+n}}; return null; }\n  return null; }\n\nconst K=3; const MAXK=5;\nconst reqs=$('A Q3').all().map(i=>i.json);\nconst res=$input.all();\nconst byIdx=new Map(); res.forEach((it,i)=>{ const p=it.pairedItem; const idx=(p&&typeof p==='object'&&!Array.isArray(p)&&Number.isInteger(p.item))?p.item:i; if(!byIdx.has(idx)) byIdx.set(idx,it.json); });\nconst prev = K>1 ? $('A C2').first().json : {ok:[],retry:[],failed:[],log:[]};\nconst st={ok:[...prev.ok], retry:[], failed:[...prev.failed], log:[...prev.log]};\nconst at=new Date().toISOString();\nreqs.forEach((rq,i)=>{\n  if(rq.__empty) return;\n  const j=byIdx.get(i); const u=unwrap(j||{}); const status=j?u.status:0;\n  st.log.push({key:rq.key, attempt:K, status, at});\n  const tries=(rq.tries||0)+1;\n  if(status===200){ st.ok.push({req:rq, status, body:u.body, attempts:tries}); for(const fu of followUps(rq,u.body)){ if(K<MAXK) st.retry.push(fu); else st.failed.push({req:fu, status:0, attempts:0, error:'FOLLOWUP_NOT_RUN'}); } const nx=nextPage(rq,u.body); if(nx){ if(K<MAXK) st.retry.push({...nx, tries:0}); else st.failed.push({req:nx, status:0, attempts:0, error:'PAGINATION_NOT_FINISHED'}); } }\n  else if(status===429||status>=500||status===0){ if(K<MAXK) st.retry.push({...rq, tries}); else st.failed.push({req:rq, status, attempts:tries, error:'RETRIES_EXHAUSTED '+JSON.stringify(u.body||(j&&j.error)||{}).slice(0,400)}); }\n  else st.failed.push({req:rq, status, attempts:tries, error:JSON.stringify(u.body||{}).slice(0,500)});\n});\nreturn [{json:st}];\n",
+        "mode": "runOnceForAllItems"
+      },
+      "name": "A C3",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3300,
+        300
+      ],
+      "id": "50ec94d6-5aaa-599f-aad4-172b538c1f1d"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "dc4bc419-b54b-55e3-ac4e-dedcd192fb52",
+              "leftValue": "={{ $json.retry.length }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "name": "A Retry?3",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        3500,
+        300
+      ],
+      "id": "f2c96c6f-cfcd-5036-a1a4-a7394f0e5f02"
+    },
+    {
+      "parameters": {
+        "resume": "timeInterval",
+        "amount": 60,
+        "unit": "seconds"
+      },
+      "name": "A Wait3 60s",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        3700,
+        300
+      ],
+      "id": "54955e93-4829-5042-9d53-399c37c4d93a"
+    },
+    {
+      "parameters": {
+        "jsCode": "const st=$('A C3').first().json; return st.retry.map(r=>({json:r}));",
+        "mode": "runOnceForAllItems"
+      },
+      "name": "A Q4",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3900,
+        300
+      ],
+      "id": "d603e9c6-a96e-5fc6-a2fb-21597737e033"
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $json.url }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpCustomAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": false,
+        "options": {
+          "timeout": 60000,
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 1500
+            }
+          },
+          "response": {
+            "response": {
+              "neverError": true,
+              "fullResponse": true,
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "name": "A HTTP4",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        4100,
+        300
+      ],
+      "onError": "continueRegularOutput",
+      "alwaysOutputData": true,
+      "notes": "Credential required: httpCustomAuth (attach your own after import)",
+      "id": "93d88afc-6604-5b07-a1d1-987bce743a8d"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nfunction unwrap(j){ const raw=(j&&j.raw)?j.raw:(j||{}); let status=Number(raw.statusCode||raw.status||0); let body=raw.body!==undefined?raw.body:raw;\n  if(typeof body==='string'){ try{ body=JSON.parse(body);}catch(e){} }\n  if(body&&typeof body==='object'&&body.body&&(body.statusCode||body.status)){ status=Number(body.statusCode||body.status||status); body=body.body; }\n  if(!status && j && j.error) status=0; return {status, body: body||{}}; }\n\nfunction followUps(rq, body){\n  if(!/seller-actions\\/list$/.test(rq.endpoint)) return [];\n  const B='https://api-seller.ozon.ru'; const out=[];\n  for(const a of (body.actions||[])){ const id=Number(a.action_id); if(!id) continue; const base='seller-products:'+id; out.push({key:base, base, endpoint:'/v1/seller-actions/products/list', method:'POST', url:B+'/v1/seller-actions/products/list', body:{action_id:id, limit:100}, action_id:id, tries:0}); }\n  return out; }\nfunction nextPage(rq, body){\n  const b=rq.body||{}; const page=(rq.page||1)+1; if(page>10) return null;\n  if(/\\/v2\\/actions\\/(products|candidates)$/.test(rq.endpoint)){ const n=(body.products||[]).length; if(n>=b.limit && body.last_id) return {...rq, key:rq.base+'#p'+page, page, body:{...b, last_id:String(body.last_id)}}; return null; }\n  if(/auto-add\\/products\\/list$/.test(rq.endpoint)){ const n=(body.products||[]).length; const tot=Number(body.total||0); if(n>=b.limit && (b.offset+n)<tot) return {...rq, key:rq.base+'#p'+page, page, body:{...b, offset:b.offset+n}}; return null; }\n  if(/seller-actions\\/products\\/list$/.test(rq.endpoint)){ if(body.has_next && body.cursor) return {...rq, key:rq.base+'#p'+page, page, body:{...b, cursor:body.cursor}}; return null; }\n  if(/seller-actions\\/list$/.test(rq.endpoint)){ const n=(body.actions||[]).length; const tot=Number(body.total||0); if(n>=b.limit && (b.offset+n)<tot) return {...rq, key:rq.base+'#p'+page, page, body:{...b, offset:b.offset+n}}; return null; }\n  return null; }\n\nconst K=4; const MAXK=5;\nconst reqs=$('A Q4').all().map(i=>i.json);\nconst res=$input.all();\nconst byIdx=new Map(); res.forEach((it,i)=>{ const p=it.pairedItem; const idx=(p&&typeof p==='object'&&!Array.isArray(p)&&Number.isInteger(p.item))?p.item:i; if(!byIdx.has(idx)) byIdx.set(idx,it.json); });\nconst prev = K>1 ? $('A C3').first().json : {ok:[],retry:[],failed:[],log:[]};\nconst st={ok:[...prev.ok], retry:[], failed:[...prev.failed], log:[...prev.log]};\nconst at=new Date().toISOString();\nreqs.forEach((rq,i)=>{\n  if(rq.__empty) return;\n  const j=byIdx.get(i); const u=unwrap(j||{}); const status=j?u.status:0;\n  st.log.push({key:rq.key, attempt:K, status, at});\n  const tries=(rq.tries||0)+1;\n  if(status===200){ st.ok.push({req:rq, status, body:u.body, attempts:tries}); for(const fu of followUps(rq,u.body)){ if(K<MAXK) st.retry.push(fu); else st.failed.push({req:fu, status:0, attempts:0, error:'FOLLOWUP_NOT_RUN'}); } const nx=nextPage(rq,u.body); if(nx){ if(K<MAXK) st.retry.push({...nx, tries:0}); else st.failed.push({req:nx, status:0, attempts:0, error:'PAGINATION_NOT_FINISHED'}); } }\n  else if(status===429||status>=500||status===0){ if(K<MAXK) st.retry.push({...rq, tries}); else st.failed.push({req:rq, status, attempts:tries, error:'RETRIES_EXHAUSTED '+JSON.stringify(u.body||(j&&j.error)||{}).slice(0,400)}); }\n  else st.failed.push({req:rq, status, attempts:tries, error:JSON.stringify(u.body||{}).slice(0,500)});\n});\nreturn [{json:st}];\n",
+        "mode": "runOnceForAllItems"
+      },
+      "name": "A C4",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4300,
+        300
+      ],
+      "id": "e2ab6694-82f2-553b-a8e9-27731b80a9a9"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "9e2a0540-a45f-5507-ae06-ed4c1d7eaa91",
+              "leftValue": "={{ $json.retry.length }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "name": "A Retry?4",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        4500,
+        300
+      ],
+      "id": "427c9363-7651-58b1-8837-fe7513341036"
+    },
+    {
+      "parameters": {
+        "resume": "timeInterval",
+        "amount": 60,
+        "unit": "seconds"
+      },
+      "name": "A Wait4 60s",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        4700,
+        300
+      ],
+      "id": "0156f71a-94fb-59c8-b589-8dbaec5e8218"
+    },
+    {
+      "parameters": {
+        "jsCode": "const st=$('A C4').first().json; return st.retry.map(r=>({json:r}));",
+        "mode": "runOnceForAllItems"
+      },
+      "name": "A Q5",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4900,
+        300
+      ],
+      "id": "9579481f-bf7e-518d-b360-72d87d6ffffb"
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $json.url }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpCustomAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": false,
+        "options": {
+          "timeout": 60000,
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 1500
+            }
+          },
+          "response": {
+            "response": {
+              "neverError": true,
+              "fullResponse": true,
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "name": "A HTTP5",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        5100,
+        300
+      ],
+      "onError": "continueRegularOutput",
+      "alwaysOutputData": true,
+      "notes": "Credential required: httpCustomAuth (attach your own after import)",
+      "id": "eb660e9f-3039-54e5-acb4-b68c7c7191db"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nfunction unwrap(j){ const raw=(j&&j.raw)?j.raw:(j||{}); let status=Number(raw.statusCode||raw.status||0); let body=raw.body!==undefined?raw.body:raw;\n  if(typeof body==='string'){ try{ body=JSON.parse(body);}catch(e){} }\n  if(body&&typeof body==='object'&&body.body&&(body.statusCode||body.status)){ status=Number(body.statusCode||body.status||status); body=body.body; }\n  if(!status && j && j.error) status=0; return {status, body: body||{}}; }\n\nfunction followUps(rq, body){\n  if(!/seller-actions\\/list$/.test(rq.endpoint)) return [];\n  const B='https://api-seller.ozon.ru'; const out=[];\n  for(const a of (body.actions||[])){ const id=Number(a.action_id); if(!id) continue; const base='seller-products:'+id; out.push({key:base, base, endpoint:'/v1/seller-actions/products/list', method:'POST', url:B+'/v1/seller-actions/products/list', body:{action_id:id, limit:100}, action_id:id, tries:0}); }\n  return out; }\nfunction nextPage(rq, body){\n  const b=rq.body||{}; const page=(rq.page||1)+1; if(page>10) return null;\n  if(/\\/v2\\/actions\\/(products|candidates)$/.test(rq.endpoint)){ const n=(body.products||[]).length; if(n>=b.limit && body.last_id) return {...rq, key:rq.base+'#p'+page, page, body:{...b, last_id:String(body.last_id)}}; return null; }\n  if(/auto-add\\/products\\/list$/.test(rq.endpoint)){ const n=(body.products||[]).length; const tot=Number(body.total||0); if(n>=b.limit && (b.offset+n)<tot) return {...rq, key:rq.base+'#p'+page, page, body:{...b, offset:b.offset+n}}; return null; }\n  if(/seller-actions\\/products\\/list$/.test(rq.endpoint)){ if(body.has_next && body.cursor) return {...rq, key:rq.base+'#p'+page, page, body:{...b, cursor:body.cursor}}; return null; }\n  if(/seller-actions\\/list$/.test(rq.endpoint)){ const n=(body.actions||[]).length; const tot=Number(body.total||0); if(n>=b.limit && (b.offset+n)<tot) return {...rq, key:rq.base+'#p'+page, page, body:{...b, offset:b.offset+n}}; return null; }\n  return null; }\n\nconst K=5; const MAXK=5;\nconst reqs=$('A Q5').all().map(i=>i.json);\nconst res=$input.all();\nconst byIdx=new Map(); res.forEach((it,i)=>{ const p=it.pairedItem; const idx=(p&&typeof p==='object'&&!Array.isArray(p)&&Number.isInteger(p.item))?p.item:i; if(!byIdx.has(idx)) byIdx.set(idx,it.json); });\nconst prev = K>1 ? $('A C4').first().json : {ok:[],retry:[],failed:[],log:[]};\nconst st={ok:[...prev.ok], retry:[], failed:[...prev.failed], log:[...prev.log]};\nconst at=new Date().toISOString();\nreqs.forEach((rq,i)=>{\n  if(rq.__empty) return;\n  const j=byIdx.get(i); const u=unwrap(j||{}); const status=j?u.status:0;\n  st.log.push({key:rq.key, attempt:K, status, at});\n  const tries=(rq.tries||0)+1;\n  if(status===200){ st.ok.push({req:rq, status, body:u.body, attempts:tries}); for(const fu of followUps(rq,u.body)){ if(K<MAXK) st.retry.push(fu); else st.failed.push({req:fu, status:0, attempts:0, error:'FOLLOWUP_NOT_RUN'}); } const nx=nextPage(rq,u.body); if(nx){ if(K<MAXK) st.retry.push({...nx, tries:0}); else st.failed.push({req:nx, status:0, attempts:0, error:'PAGINATION_NOT_FINISHED'}); } }\n  else if(status===429||status>=500||status===0){ if(K<MAXK) st.retry.push({...rq, tries}); else st.failed.push({req:rq, status, attempts:tries, error:'RETRIES_EXHAUSTED '+JSON.stringify(u.body||(j&&j.error)||{}).slice(0,400)}); }\n  else st.failed.push({req:rq, status, attempts:tries, error:JSON.stringify(u.body||{}).slice(0,500)});\n});\nreturn [{json:st}];\n",
+        "mode": "runOnceForAllItems"
+      },
+      "name": "A C5",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5300,
+        300
+      ],
+      "id": "d196d8df-7671-58ad-a059-d6194d2b2178"
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{json: $input.first().json}];",
+        "mode": "runOnceForAllItems"
+      },
+      "name": "A Done",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5500,
+        550
+      ],
+      "id": "76fcaf66-9bd0-5af6-881c-d98e697bea0f"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst B='https://api-seller.ozon.ru';\nconst A=$('A Done').first().json;\nconst out=[{key:'seller-actions', base:'seller-actions', endpoint:'/v1/seller-actions/list', method:'POST', url:B+'/v1/seller-actions/list', body:{limit:100, offset:0}, action_id:null}]; const now=Date.now();\nfor(const ok of A.ok){\n  const body=ok.body||{};\n  if(ok.req.endpoint==='/v1/actions'){\n    const list=Array.isArray(body.result)?body.result:(body.result&&body.result.actions)||body.actions||[];\n    for(const a of list){ const id=Number(a.id); if(!id) continue;\n      for(const ep of ['/v2/actions/products','/v2/actions/candidates']){ const base=ep.split('/').pop()+':'+id; out.push({key:base, base, endpoint:ep, method:'POST', url:B+ep, body:{action_id:id, limit:100}, action_id:id}); }\n      for(const d of (a.auto_add_dates||[])){ const t=Date.parse(d); if(!(t>=now-36*3600e3)) continue; const base='autoadd:'+id+':'+d; out.push({key:base, base, endpoint:'/v2/actions/auto-add/products/list', method:'POST', url:B+'/v2/actions/auto-add/products/list', body:{action_id:id, auto_add_date:d, limit:100, offset:0}, action_id:id}); }\n    }\n  }\n  if(ok.req.endpoint==='/v1/seller-actions/list'){\n    for(const a of (body.actions||[])){ const id=Number(a.action_id); if(!id) continue; const base='seller-products:'+id; out.push({key:base, base, endpoint:'/v1/seller-actions/products/list', method:'POST', url:B+'/v1/seller-actions/products/list', body:{action_id:id, limit:100}, action_id:id}); }\n  }\n}\nreturn out.map(j=>({json:j}));\n",
+        "mode": "runOnceForAllItems"
+      },
+      "name": "B Q1",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        900,
+        800
+      ],
+      "id": "d7cc8a61-a811-5a39-8711-83860973b2d9"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.url }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpCustomAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.body || {}) }}",
+        "options": {
+          "timeout": 60000,
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 1500
+            }
+          },
+          "response": {
+            "response": {
+              "neverError": true,
+              "fullResponse": true,
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "name": "B HTTP1",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1100,
+        800
+      ],
+      "onError": "continueRegularOutput",
+      "alwaysOutputData": true,
+      "notes": "Credential required: httpCustomAuth (attach your own after import)",
+      "id": "a86b96dd-6940-5c92-a1d7-609d8919f830"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nfunction unwrap(j){ const raw=(j&&j.raw)?j.raw:(j||{}); let status=Number(raw.statusCode||raw.status||0); let body=raw.body!==undefined?raw.body:raw;\n  if(typeof body==='string'){ try{ body=JSON.parse(body);}catch(e){} }\n  if(body&&typeof body==='object'&&body.body&&(body.statusCode||body.status)){ status=Number(body.statusCode||body.status||status); body=body.body; }\n  if(!status && j && j.error) status=0; return {status, body: body||{}}; }\n\nfunction followUps(rq, body){\n  if(!/seller-actions\\/list$/.test(rq.endpoint)) return [];\n  const B='https://api-seller.ozon.ru'; const out=[];\n  for(const a of (body.actions||[])){ const id=Number(a.action_id); if(!id) continue; const base='seller-products:'+id; out.push({key:base, base, endpoint:'/v1/seller-actions/products/list', method:'POST', url:B+'/v1/seller-actions/products/list', body:{action_id:id, limit:100}, action_id:id, tries:0}); }\n  return out; }\nfunction nextPage(rq, body){\n  const b=rq.body||{}; const page=(rq.page||1)+1; if(page>10) return null;\n  if(/\\/v2\\/actions\\/(products|candidates)$/.test(rq.endpoint)){ const n=(body.products||[]).length; if(n>=b.limit && body.last_id) return {...rq, key:rq.base+'#p'+page, page, body:{...b, last_id:String(body.last_id)}}; return null; }\n  if(/auto-add\\/products\\/list$/.test(rq.endpoint)){ const n=(body.products||[]).length; const tot=Number(body.total||0); if(n>=b.limit && (b.offset+n)<tot) return {...rq, key:rq.base+'#p'+page, page, body:{...b, offset:b.offset+n}}; return null; }\n  if(/seller-actions\\/products\\/list$/.test(rq.endpoint)){ if(body.has_next && body.cursor) return {...rq, key:rq.base+'#p'+page, page, body:{...b, cursor:body.cursor}}; return null; }\n  if(/seller-actions\\/list$/.test(rq.endpoint)){ const n=(body.actions||[]).length; const tot=Number(body.total||0); if(n>=b.limit && (b.offset+n)<tot) return {...rq, key:rq.base+'#p'+page, page, body:{...b, offset:b.offset+n}}; return null; }\n  return null; }\n\nconst K=1; const MAXK=5;\nconst reqs=$('B Q1').all().map(i=>i.json);\nconst res=$input.all();\nconst byIdx=new Map(); res.forEach((it,i)=>{ const p=it.pairedItem; const idx=(p&&typeof p==='object'&&!Array.isArray(p)&&Number.isInteger(p.item))?p.item:i; if(!byIdx.has(idx)) byIdx.set(idx,it.json); });\nconst prev = K>1 ? $('B C0').first().json : {ok:[],retry:[],failed:[],log:[]};\nconst st={ok:[...prev.ok], retry:[], failed:[...prev.failed], log:[...prev.log]};\nconst at=new Date().toISOString();\nreqs.forEach((rq,i)=>{\n  if(rq.__empty) return;\n  const j=byIdx.get(i); const u=unwrap(j||{}); const status=j?u.status:0;\n  st.log.push({key:rq.key, attempt:K, status, at});\n  const tries=(rq.tries||0)+1;\n  if(status===200){ st.ok.push({req:rq, status, body:u.body, attempts:tries}); for(const fu of followUps(rq,u.body)){ if(K<MAXK) st.retry.push(fu); else st.failed.push({req:fu, status:0, attempts:0, error:'FOLLOWUP_NOT_RUN'}); } const nx=nextPage(rq,u.body); if(nx){ if(K<MAXK) st.retry.push({...nx, tries:0}); else st.failed.push({req:nx, status:0, attempts:0, error:'PAGINATION_NOT_FINISHED'}); } }\n  else if(status===429||status>=500||status===0){ if(K<MAXK) st.retry.push({...rq, tries}); else st.failed.push({req:rq, status, attempts:tries, error:'RETRIES_EXHAUSTED '+JSON.stringify(u.body||(j&&j.error)||{}).slice(0,400)}); }\n  else st.failed.push({req:rq, status, attempts:tries, error:JSON.stringify(u.body||{}).slice(0,500)});\n});\nreturn [{json:st}];\n",
+        "mode": "runOnceForAllItems"
+      },
+      "name": "B C1",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1300,
+        800
+      ],
+      "id": "19fd30fa-1831-5f9e-8ed3-511c553fe105"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "255e377c-e73a-5c7a-a927-2a0ccaa5327d",
+              "leftValue": "={{ $json.retry.length }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "name": "B Retry?1",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1500,
+        800
+      ],
+      "id": "18c5c13e-8791-548e-9397-84b5758ec478"
+    },
+    {
+      "parameters": {
+        "resume": "timeInterval",
+        "amount": 20,
+        "unit": "seconds"
+      },
+      "name": "B Wait1 20s",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        1700,
+        800
+      ],
+      "id": "8b84f194-99a5-5136-9ef0-a59d4f029c06"
+    },
+    {
+      "parameters": {
+        "jsCode": "const st=$('B C1').first().json; return st.retry.map(r=>({json:r}));",
+        "mode": "runOnceForAllItems"
+      },
+      "name": "B Q2",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1900,
+        800
+      ],
+      "id": "30f051c8-bd33-56b5-9dbe-512a248e82bf"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.url }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpCustomAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.body || {}) }}",
+        "options": {
+          "timeout": 60000,
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 1500
+            }
+          },
+          "response": {
+            "response": {
+              "neverError": true,
+              "fullResponse": true,
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "name": "B HTTP2",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2100,
+        800
+      ],
+      "onError": "continueRegularOutput",
+      "alwaysOutputData": true,
+      "notes": "Credential required: httpCustomAuth (attach your own after import)",
+      "id": "24eb7297-013e-556b-94a4-768bbeec44ca"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nfunction unwrap(j){ const raw=(j&&j.raw)?j.raw:(j||{}); let status=Number(raw.statusCode||raw.status||0); let body=raw.body!==undefined?raw.body:raw;\n  if(typeof body==='string'){ try{ body=JSON.parse(body);}catch(e){} }\n  if(body&&typeof body==='object'&&body.body&&(body.statusCode||body.status)){ status=Number(body.statusCode||body.status||status); body=body.body; }\n  if(!status && j && j.error) status=0; return {status, body: body||{}}; }\n\nfunction followUps(rq, body){\n  if(!/seller-actions\\/list$/.test(rq.endpoint)) return [];\n  const B='https://api-seller.ozon.ru'; const out=[];\n  for(const a of (body.actions||[])){ const id=Number(a.action_id); if(!id) continue; const base='seller-products:'+id; out.push({key:base, base, endpoint:'/v1/seller-actions/products/list', method:'POST', url:B+'/v1/seller-actions/products/list', body:{action_id:id, limit:100}, action_id:id, tries:0}); }\n  return out; }\nfunction nextPage(rq, body){\n  const b=rq.body||{}; const page=(rq.page||1)+1; if(page>10) return null;\n  if(/\\/v2\\/actions\\/(products|candidates)$/.test(rq.endpoint)){ const n=(body.products||[]).length; if(n>=b.limit && body.last_id) return {...rq, key:rq.base+'#p'+page, page, body:{...b, last_id:String(body.last_id)}}; return null; }\n  if(/auto-add\\/products\\/list$/.test(rq.endpoint)){ const n=(body.products||[]).length; const tot=Number(body.total||0); if(n>=b.limit && (b.offset+n)<tot) return {...rq, key:rq.base+'#p'+page, page, body:{...b, offset:b.offset+n}}; return null; }\n  if(/seller-actions\\/products\\/list$/.test(rq.endpoint)){ if(body.has_next && body.cursor) return {...rq, key:rq.base+'#p'+page, page, body:{...b, cursor:body.cursor}}; return null; }\n  if(/seller-actions\\/list$/.test(rq.endpoint)){ const n=(body.actions||[]).length; const tot=Number(body.total||0); if(n>=b.limit && (b.offset+n)<tot) return {...rq, key:rq.base+'#p'+page, page, body:{...b, offset:b.offset+n}}; return null; }\n  return null; }\n\nconst K=2; const MAXK=5;\nconst reqs=$('B Q2').all().map(i=>i.json);\nconst res=$input.all();\nconst byIdx=new Map(); res.forEach((it,i)=>{ const p=it.pairedItem; const idx=(p&&typeof p==='object'&&!Array.isArray(p)&&Number.isInteger(p.item))?p.item:i; if(!byIdx.has(idx)) byIdx.set(idx,it.json); });\nconst prev = K>1 ? $('B C1').first().json : {ok:[],retry:[],failed:[],log:[]};\nconst st={ok:[...prev.ok], retry:[], failed:[...prev.failed], log:[...prev.log]};\nconst at=new Date().toISOString();\nreqs.forEach((rq,i)=>{\n  if(rq.__empty) return;\n  const j=byIdx.get(i); const u=unwrap(j||{}); const status=j?u.status:0;\n  st.log.push({key:rq.key, attempt:K, status, at});\n  const tries=(rq.tries||0)+1;\n  if(status===200){ st.ok.push({req:rq, status, body:u.body, attempts:tries}); for(const fu of followUps(rq,u.body)){ if(K<MAXK) st.retry.push(fu); else st.failed.push({req:fu, status:0, attempts:0, error:'FOLLOWUP_NOT_RUN'}); } const nx=nextPage(rq,u.body); if(nx){ if(K<MAXK) st.retry.push({...nx, tries:0}); else st.failed.push({req:nx, status:0, attempts:0, error:'PAGINATION_NOT_FINISHED'}); } }\n  else if(status===429||status>=500||status===0){ if(K<MAXK) st.retry.push({...rq, tries}); else st.failed.push({req:rq, status, attempts:tries, error:'RETRIES_EXHAUSTED '+JSON.stringify(u.body||(j&&j.error)||{}).slice(0,400)}); }\n  else st.failed.push({req:rq, status, attempts:tries, error:JSON.stringify(u.body||{}).slice(0,500)});\n});\nreturn [{json:st}];\n",
+        "mode": "runOnceForAllItems"
+      },
+      "name": "B C2",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2300,
+        800
+      ],
+      "id": "0de774d9-9af9-5ddf-9f5e-6d92d8e0d1d6"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "bb62540d-080d-53f2-a09e-8ad80d740694",
+              "leftValue": "={{ $json.retry.length }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "name": "B Retry?2",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        2500,
+        800
+      ],
+      "id": "6ba7fc63-6e79-522b-8951-dadfe95c7999"
+    },
+    {
+      "parameters": {
+        "resume": "timeInterval",
+        "amount": 40,
+        "unit": "seconds"
+      },
+      "name": "B Wait2 40s",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        2700,
+        800
+      ],
+      "id": "17cc8800-c613-54cb-b94b-33417a6d0642"
+    },
+    {
+      "parameters": {
+        "jsCode": "const st=$('B C2').first().json; return st.retry.map(r=>({json:r}));",
+        "mode": "runOnceForAllItems"
+      },
+      "name": "B Q3",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2900,
+        800
+      ],
+      "id": "2b0a277f-9ced-5a2e-8fe7-046c6975c4a6"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.url }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpCustomAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.body || {}) }}",
+        "options": {
+          "timeout": 60000,
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 1500
+            }
+          },
+          "response": {
+            "response": {
+              "neverError": true,
+              "fullResponse": true,
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "name": "B HTTP3",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3100,
+        800
+      ],
+      "onError": "continueRegularOutput",
+      "alwaysOutputData": true,
+      "notes": "Credential required: httpCustomAuth (attach your own after import)",
+      "id": "4a18f0f2-aad1-5431-a492-e0b42cb59c47"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nfunction unwrap(j){ const raw=(j&&j.raw)?j.raw:(j||{}); let status=Number(raw.statusCode||raw.status||0); let body=raw.body!==undefined?raw.body:raw;\n  if(typeof body==='string'){ try{ body=JSON.parse(body);}catch(e){} }\n  if(body&&typeof body==='object'&&body.body&&(body.statusCode||body.status)){ status=Number(body.statusCode||body.status||status); body=body.body; }\n  if(!status && j && j.error) status=0; return {status, body: body||{}}; }\n\nfunction followUps(rq, body){\n  if(!/seller-actions\\/list$/.test(rq.endpoint)) return [];\n  const B='https://api-seller.ozon.ru'; const out=[];\n  for(const a of (body.actions||[])){ const id=Number(a.action_id); if(!id) continue; const base='seller-products:'+id; out.push({key:base, base, endpoint:'/v1/seller-actions/products/list', method:'POST', url:B+'/v1/seller-actions/products/list', body:{action_id:id, limit:100}, action_id:id, tries:0}); }\n  return out; }\nfunction nextPage(rq, body){\n  const b=rq.body||{}; const page=(rq.page||1)+1; if(page>10) return null;\n  if(/\\/v2\\/actions\\/(products|candidates)$/.test(rq.endpoint)){ const n=(body.products||[]).length; if(n>=b.limit && body.last_id) return {...rq, key:rq.base+'#p'+page, page, body:{...b, last_id:String(body.last_id)}}; return null; }\n  if(/auto-add\\/products\\/list$/.test(rq.endpoint)){ const n=(body.products||[]).length; const tot=Number(body.total||0); if(n>=b.limit && (b.offset+n)<tot) return {...rq, key:rq.base+'#p'+page, page, body:{...b, offset:b.offset+n}}; return null; }\n  if(/seller-actions\\/products\\/list$/.test(rq.endpoint)){ if(body.has_next && body.cursor) return {...rq, key:rq.base+'#p'+page, page, body:{...b, cursor:body.cursor}}; return null; }\n  if(/seller-actions\\/list$/.test(rq.endpoint)){ const n=(body.actions||[]).length; const tot=Number(body.total||0); if(n>=b.limit && (b.offset+n)<tot) return {...rq, key:rq.base+'#p'+page, page, body:{...b, offset:b.offset+n}}; return null; }\n  return null; }\n\nconst K=3; const MAXK=5;\nconst reqs=$('B Q3').all().map(i=>i.json);\nconst res=$input.all();\nconst byIdx=new Map(); res.forEach((it,i)=>{ const p=it.pairedItem; const idx=(p&&typeof p==='object'&&!Array.isArray(p)&&Number.isInteger(p.item))?p.item:i; if(!byIdx.has(idx)) byIdx.set(idx,it.json); });\nconst prev = K>1 ? $('B C2').first().json : {ok:[],retry:[],failed:[],log:[]};\nconst st={ok:[...prev.ok], retry:[], failed:[...prev.failed], log:[...prev.log]};\nconst at=new Date().toISOString();\nreqs.forEach((rq,i)=>{\n  if(rq.__empty) return;\n  const j=byIdx.get(i); const u=unwrap(j||{}); const status=j?u.status:0;\n  st.log.push({key:rq.key, attempt:K, status, at});\n  const tries=(rq.tries||0)+1;\n  if(status===200){ st.ok.push({req:rq, status, body:u.body, attempts:tries}); for(const fu of followUps(rq,u.body)){ if(K<MAXK) st.retry.push(fu); else st.failed.push({req:fu, status:0, attempts:0, error:'FOLLOWUP_NOT_RUN'}); } const nx=nextPage(rq,u.body); if(nx){ if(K<MAXK) st.retry.push({...nx, tries:0}); else st.failed.push({req:nx, status:0, attempts:0, error:'PAGINATION_NOT_FINISHED'}); } }\n  else if(status===429||status>=500||status===0){ if(K<MAXK) st.retry.push({...rq, tries}); else st.failed.push({req:rq, status, attempts:tries, error:'RETRIES_EXHAUSTED '+JSON.stringify(u.body||(j&&j.error)||{}).slice(0,400)}); }\n  else st.failed.push({req:rq, status, attempts:tries, error:JSON.stringify(u.body||{}).slice(0,500)});\n});\nreturn [{json:st}];\n",
+        "mode": "runOnceForAllItems"
+      },
+      "name": "B C3",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3300,
+        800
+      ],
+      "id": "c7fc2ee1-9df5-58d9-bbb0-82d301ac9728"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "f4a4c68c-0ae8-5e43-8b17-ffff8cfc5de4",
+              "leftValue": "={{ $json.retry.length }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "name": "B Retry?3",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        3500,
+        800
+      ],
+      "id": "a180cfb8-15fd-5fab-9cbe-9e3cb7f8e632"
+    },
+    {
+      "parameters": {
+        "resume": "timeInterval",
+        "amount": 60,
+        "unit": "seconds"
+      },
+      "name": "B Wait3 60s",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        3700,
+        800
+      ],
+      "id": "efd4f145-013c-5a86-ab40-79eab89ccc7e"
+    },
+    {
+      "parameters": {
+        "jsCode": "const st=$('B C3').first().json; return st.retry.map(r=>({json:r}));",
+        "mode": "runOnceForAllItems"
+      },
+      "name": "B Q4",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3900,
+        800
+      ],
+      "id": "46f6314c-2028-53b7-b676-eb1713d4ebb4"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.url }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpCustomAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.body || {}) }}",
+        "options": {
+          "timeout": 60000,
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 1500
+            }
+          },
+          "response": {
+            "response": {
+              "neverError": true,
+              "fullResponse": true,
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "name": "B HTTP4",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        4100,
+        800
+      ],
+      "onError": "continueRegularOutput",
+      "alwaysOutputData": true,
+      "notes": "Credential required: httpCustomAuth (attach your own after import)",
+      "id": "4b790b09-5b12-5743-a823-fafaefec36a4"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nfunction unwrap(j){ const raw=(j&&j.raw)?j.raw:(j||{}); let status=Number(raw.statusCode||raw.status||0); let body=raw.body!==undefined?raw.body:raw;\n  if(typeof body==='string'){ try{ body=JSON.parse(body);}catch(e){} }\n  if(body&&typeof body==='object'&&body.body&&(body.statusCode||body.status)){ status=Number(body.statusCode||body.status||status); body=body.body; }\n  if(!status && j && j.error) status=0; return {status, body: body||{}}; }\n\nfunction followUps(rq, body){\n  if(!/seller-actions\\/list$/.test(rq.endpoint)) return [];\n  const B='https://api-seller.ozon.ru'; const out=[];\n  for(const a of (body.actions||[])){ const id=Number(a.action_id); if(!id) continue; const base='seller-products:'+id; out.push({key:base, base, endpoint:'/v1/seller-actions/products/list', method:'POST', url:B+'/v1/seller-actions/products/list', body:{action_id:id, limit:100}, action_id:id, tries:0}); }\n  return out; }\nfunction nextPage(rq, body){\n  const b=rq.body||{}; const page=(rq.page||1)+1; if(page>10) return null;\n  if(/\\/v2\\/actions\\/(products|candidates)$/.test(rq.endpoint)){ const n=(body.products||[]).length; if(n>=b.limit && body.last_id) return {...rq, key:rq.base+'#p'+page, page, body:{...b, last_id:String(body.last_id)}}; return null; }\n  if(/auto-add\\/products\\/list$/.test(rq.endpoint)){ const n=(body.products||[]).length; const tot=Number(body.total||0); if(n>=b.limit && (b.offset+n)<tot) return {...rq, key:rq.base+'#p'+page, page, body:{...b, offset:b.offset+n}}; return null; }\n  if(/seller-actions\\/products\\/list$/.test(rq.endpoint)){ if(body.has_next && body.cursor) return {...rq, key:rq.base+'#p'+page, page, body:{...b, cursor:body.cursor}}; return null; }\n  if(/seller-actions\\/list$/.test(rq.endpoint)){ const n=(body.actions||[]).length; const tot=Number(body.total||0); if(n>=b.limit && (b.offset+n)<tot) return {...rq, key:rq.base+'#p'+page, page, body:{...b, offset:b.offset+n}}; return null; }\n  return null; }\n\nconst K=4; const MAXK=5;\nconst reqs=$('B Q4').all().map(i=>i.json);\nconst res=$input.all();\nconst byIdx=new Map(); res.forEach((it,i)=>{ const p=it.pairedItem; const idx=(p&&typeof p==='object'&&!Array.isArray(p)&&Number.isInteger(p.item))?p.item:i; if(!byIdx.has(idx)) byIdx.set(idx,it.json); });\nconst prev = K>1 ? $('B C3').first().json : {ok:[],retry:[],failed:[],log:[]};\nconst st={ok:[...prev.ok], retry:[], failed:[...prev.failed], log:[...prev.log]};\nconst at=new Date().toISOString();\nreqs.forEach((rq,i)=>{\n  if(rq.__empty) return;\n  const j=byIdx.get(i); const u=unwrap(j||{}); const status=j?u.status:0;\n  st.log.push({key:rq.key, attempt:K, status, at});\n  const tries=(rq.tries||0)+1;\n  if(status===200){ st.ok.push({req:rq, status, body:u.body, attempts:tries}); for(const fu of followUps(rq,u.body)){ if(K<MAXK) st.retry.push(fu); else st.failed.push({req:fu, status:0, attempts:0, error:'FOLLOWUP_NOT_RUN'}); } const nx=nextPage(rq,u.body); if(nx){ if(K<MAXK) st.retry.push({...nx, tries:0}); else st.failed.push({req:nx, status:0, attempts:0, error:'PAGINATION_NOT_FINISHED'}); } }\n  else if(status===429||status>=500||status===0){ if(K<MAXK) st.retry.push({...rq, tries}); else st.failed.push({req:rq, status, attempts:tries, error:'RETRIES_EXHAUSTED '+JSON.stringify(u.body||(j&&j.error)||{}).slice(0,400)}); }\n  else st.failed.push({req:rq, status, attempts:tries, error:JSON.stringify(u.body||{}).slice(0,500)});\n});\nreturn [{json:st}];\n",
+        "mode": "runOnceForAllItems"
+      },
+      "name": "B C4",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4300,
+        800
+      ],
+      "id": "333a5f49-ee69-5917-8912-70c6ae9a957a"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "290b0a29-b3a3-55b7-ae05-f6a118679f49",
+              "leftValue": "={{ $json.retry.length }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "name": "B Retry?4",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        4500,
+        800
+      ],
+      "id": "3741a5c2-d00b-54ce-b827-381890e23be2"
+    },
+    {
+      "parameters": {
+        "resume": "timeInterval",
+        "amount": 60,
+        "unit": "seconds"
+      },
+      "name": "B Wait4 60s",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        4700,
+        800
+      ],
+      "id": "8d01ddce-c694-5bb0-9af2-7eebf6fa00f4"
+    },
+    {
+      "parameters": {
+        "jsCode": "const st=$('B C4').first().json; return st.retry.map(r=>({json:r}));",
+        "mode": "runOnceForAllItems"
+      },
+      "name": "B Q5",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4900,
+        800
+      ],
+      "id": "6993eb51-d448-5a81-919c-d1842c4501ca"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.url }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpCustomAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.body || {}) }}",
+        "options": {
+          "timeout": 60000,
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 1500
+            }
+          },
+          "response": {
+            "response": {
+              "neverError": true,
+              "fullResponse": true,
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "name": "B HTTP5",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        5100,
+        800
+      ],
+      "onError": "continueRegularOutput",
+      "alwaysOutputData": true,
+      "notes": "Credential required: httpCustomAuth (attach your own after import)",
+      "id": "65ef34b1-20dc-5134-8d0b-1e38e320c2f9"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nfunction unwrap(j){ const raw=(j&&j.raw)?j.raw:(j||{}); let status=Number(raw.statusCode||raw.status||0); let body=raw.body!==undefined?raw.body:raw;\n  if(typeof body==='string'){ try{ body=JSON.parse(body);}catch(e){} }\n  if(body&&typeof body==='object'&&body.body&&(body.statusCode||body.status)){ status=Number(body.statusCode||body.status||status); body=body.body; }\n  if(!status && j && j.error) status=0; return {status, body: body||{}}; }\n\nfunction followUps(rq, body){\n  if(!/seller-actions\\/list$/.test(rq.endpoint)) return [];\n  const B='https://api-seller.ozon.ru'; const out=[];\n  for(const a of (body.actions||[])){ const id=Number(a.action_id); if(!id) continue; const base='seller-products:'+id; out.push({key:base, base, endpoint:'/v1/seller-actions/products/list', method:'POST', url:B+'/v1/seller-actions/products/list', body:{action_id:id, limit:100}, action_id:id, tries:0}); }\n  return out; }\nfunction nextPage(rq, body){\n  const b=rq.body||{}; const page=(rq.page||1)+1; if(page>10) return null;\n  if(/\\/v2\\/actions\\/(products|candidates)$/.test(rq.endpoint)){ const n=(body.products||[]).length; if(n>=b.limit && body.last_id) return {...rq, key:rq.base+'#p'+page, page, body:{...b, last_id:String(body.last_id)}}; return null; }\n  if(/auto-add\\/products\\/list$/.test(rq.endpoint)){ const n=(body.products||[]).length; const tot=Number(body.total||0); if(n>=b.limit && (b.offset+n)<tot) return {...rq, key:rq.base+'#p'+page, page, body:{...b, offset:b.offset+n}}; return null; }\n  if(/seller-actions\\/products\\/list$/.test(rq.endpoint)){ if(body.has_next && body.cursor) return {...rq, key:rq.base+'#p'+page, page, body:{...b, cursor:body.cursor}}; return null; }\n  if(/seller-actions\\/list$/.test(rq.endpoint)){ const n=(body.actions||[]).length; const tot=Number(body.total||0); if(n>=b.limit && (b.offset+n)<tot) return {...rq, key:rq.base+'#p'+page, page, body:{...b, offset:b.offset+n}}; return null; }\n  return null; }\n\nconst K=5; const MAXK=5;\nconst reqs=$('B Q5').all().map(i=>i.json);\nconst res=$input.all();\nconst byIdx=new Map(); res.forEach((it,i)=>{ const p=it.pairedItem; const idx=(p&&typeof p==='object'&&!Array.isArray(p)&&Number.isInteger(p.item))?p.item:i; if(!byIdx.has(idx)) byIdx.set(idx,it.json); });\nconst prev = K>1 ? $('B C4').first().json : {ok:[],retry:[],failed:[],log:[]};\nconst st={ok:[...prev.ok], retry:[], failed:[...prev.failed], log:[...prev.log]};\nconst at=new Date().toISOString();\nreqs.forEach((rq,i)=>{\n  if(rq.__empty) return;\n  const j=byIdx.get(i); const u=unwrap(j||{}); const status=j?u.status:0;\n  st.log.push({key:rq.key, attempt:K, status, at});\n  const tries=(rq.tries||0)+1;\n  if(status===200){ st.ok.push({req:rq, status, body:u.body, attempts:tries}); for(const fu of followUps(rq,u.body)){ if(K<MAXK) st.retry.push(fu); else st.failed.push({req:fu, status:0, attempts:0, error:'FOLLOWUP_NOT_RUN'}); } const nx=nextPage(rq,u.body); if(nx){ if(K<MAXK) st.retry.push({...nx, tries:0}); else st.failed.push({req:nx, status:0, attempts:0, error:'PAGINATION_NOT_FINISHED'}); } }\n  else if(status===429||status>=500||status===0){ if(K<MAXK) st.retry.push({...rq, tries}); else st.failed.push({req:rq, status, attempts:tries, error:'RETRIES_EXHAUSTED '+JSON.stringify(u.body||(j&&j.error)||{}).slice(0,400)}); }\n  else st.failed.push({req:rq, status, attempts:tries, error:JSON.stringify(u.body||{}).slice(0,500)});\n});\nreturn [{json:st}];\n",
+        "mode": "runOnceForAllItems"
+      },
+      "name": "B C5",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5300,
+        800
+      ],
+      "id": "500961b5-fafa-5428-bac4-59d107af7a74"
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{json: $input.first().json}];",
+        "mode": "runOnceForAllItems"
+      },
+      "name": "B Done",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5500,
+        1050
+      ],
+      "id": "da88638d-a248-508d-8c63-cd9d02f0f7e9"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nfunction sqlStr(v){ if(v===null||v===undefined||v==='') return 'NULL'; return \"'\"+String(v).replace(/'/g,\"''\")+\"'\"; }\nfunction sqlNum(v){ if(v===null||v===undefined||v==='') return 'NULL'; const n=Number(v); return Number.isFinite(n)?String(n):'NULL'; }\nfunction sqlBool(v){ return v===true?'true':v===false?'false':'NULL'; }\nfunction sqlJson(v){ if(v===undefined||v===null) return 'NULL'; return \"'\"+JSON.stringify(v).replace(/'/g,\"''\")+\"'::jsonb\"; }\nfunction sqlTs(v){ if(!v) return 'NULL'; const s=String(v); if(!/^[0-9]{4}-[0-9]{2}-[0-9]{2}/.test(s)) return 'NULL'; return \"'\"+s.replace(/'/g,'')+\"'::timestamptz\"; }\nfunction money(v){ if(v===null||v===undefined||v==='') return null; if(typeof v==='object') return (v.amount===undefined||v.amount===null||v.amount==='')?null:Number(v.amount); const n=Number(v); return Number.isFinite(n)?n:null; }\nfunction scrub(o){ if(Array.isArray(o)) return o.map(scrub); if(!o||typeof o!=='object') return o; const out={}; for(const [k,v] of Object.entries(o)){ if(/phone|driver|vehicle|passport/i.test(k)) continue; out[k]=scrub(v);} return out; }\n\nconst runId=$('Init').first().json.run_id;\nconst A=$('A Done').first().json; const Bs=$('B Done').first().json;\nconst ok=[...A.ok,...Bs.ok]; const failed=[...A.failed,...Bs.failed];\nconst stmts=[]; const counts={};\nfunction push(table, cols, rows){ counts[table]=(counts[table]||0)+rows.length; for(let i=0;i<rows.length;i+=150){ stmts.push('INSERT INTO '+table+' ('+cols.join(',')+') VALUES '+rows.slice(i,i+150).map(r=>'('+r.join(',')+')').join(',')); } }\nconst calls=[];\nfor(const o of ok){ const b=o.body||{}; const arr=b.products||b.actions||(Array.isArray(b.result)?b.result:[])||[];\n  calls.push([sqlStr(runId), sqlStr(o.req.key), sqlStr(o.req.endpoint), sqlNum(o.req.action_id), sqlJson(o.req.body), sqlNum(o.status), sqlNum(o.attempts), sqlNum(arr.length), sqlNum(b.total), 'NULL']); }\nfor(const f of failed){ calls.push([sqlStr(runId), sqlStr(f.req.key), sqlStr(f.req.endpoint), sqlNum(f.req.action_id), sqlJson(f.req.body), sqlNum(f.status), sqlNum(f.attempts), 'NULL','NULL', sqlStr(f.error)]); }\nfor(const p of [...A.retry||[], ...Bs.retry||[]]) calls.push([sqlStr(runId), sqlStr(p.key), sqlStr(p.endpoint), sqlNum(p.action_id), sqlJson(p.body), 'NULL', sqlNum(p.tries), 'NULL','NULL', sqlStr('NOT_ATTEMPTED')]);\npush('landing.promo_api_call',['run_id','call_key','endpoint','action_id','request','http_status','attempts','item_count','total_reported','error'],calls);\nconst acts=[], sacts=[], prods=[], aas=[], sprods=[];\nfor(const o of ok){ const b=o.body||{}; const ep=o.req.endpoint; const aid=o.req.action_id;\n  if(ep==='/v1/actions'){ const list=Array.isArray(b.result)?b.result:(b.result&&b.result.actions)||[]; for(const a of list) acts.push([sqlStr(runId), sqlNum(a.id), sqlStr(a.title), sqlStr(a.action_type), sqlTs(a.date_start), sqlTs(a.date_end), sqlStr(a.freeze_date), sqlJson(a.auto_add_dates||[]), sqlNum(a.potential_products_count), sqlNum(a.participating_products_count), sqlBool(a.is_participating), sqlStr(a.discount_type), sqlNum(a.discount_value), sqlBool(a.with_targeting), sqlJson(scrub(a))]); }\n  if(ep==='/v1/seller-actions/list'){ for(const a of (b.actions||[])){ const p=a.action_parameters||{}; sacts.push([sqlStr(runId), sqlNum(a.action_id), sqlStr(p.title||p.name), sqlStr(p.action_type||p.type), sqlTs(p.date_start||p.start_date), sqlTs(p.date_end||p.end_date), sqlBool(a.is_turn_on), sqlNum(a.sku_count), sqlJson(scrub(a))]); } }\n  if(/\\/v2\\/actions\\/(products|candidates)$/.test(ep)){ const src=/candidates$/.test(ep)?'CANDIDATES':'PRODUCTS';\n    for(const p of (b.products||[])){ const wp=p.website_prices||null; prods.push([sqlStr(runId), sqlNum(aid), sqlStr(src), sqlNum(p.id??p.product_id), sqlNum(money(p.action_price)), sqlNum(money(p.price)), sqlNum(money(p.marketplace_seller_price)), sqlNum(money(p.min_seller_price)), sqlNum(money(p.max_action_price)), sqlNum(money(p.alert_max_action_price)), sqlBool(p.alert_max_action_price_failed), sqlStr(p.add_mode), sqlNum(p.current_boost), sqlNum(p.min_boost), sqlNum(p.max_boost), sqlNum(money(p.price_min_elastic)), sqlNum(money(p.price_max_elastic)), sqlNum(p.min_stock), sqlNum(p.stock), sqlNum(p.recommended_stock), sqlBool(p.is_quarantined), sqlNum(money(wp&&wp.price)), sqlJson(wp), sqlNum(b.total), sqlJson(scrub(p))]); } }\n  if(/auto-add\\/products\\/list$/.test(ep)){ for(const p of (b.products||[])) aas.push([sqlStr(runId), sqlNum(aid), sqlTs(o.req.body.auto_add_date), sqlNum(p.product_id), sqlNum(p.sku), sqlStr(p.offer_id), sqlNum(money(p.action_price_to_auto_add)), sqlNum(money(p.price)), sqlNum(money(p.base_price)), sqlNum(money(p.marketplace_seller_price)), sqlNum(money(p.min_seller_price)), sqlNum(money(p.max_discount_price)), sqlNum(p.quantity_to_auto_add), sqlNum(p.min_action_quantity), sqlBool(p.add_mode), sqlJson(p.website_prices||null), sqlJson(scrub(p))]); }\n  if(/seller-actions\\/products\\/list$/.test(ep)){ for(const p of (b.products||[])) sprods.push([sqlStr(runId), sqlNum(aid), sqlNum(p.product_id), sqlNum(p.sku), sqlStr(p.offer_id), sqlNum(money(p.action_price)), sqlNum(money(p.base_price)), sqlNum(money(p.price)), sqlNum(p.discount_percent), sqlBool(p.is_active), sqlNum(money(p.min_seller_price)), sqlJson(scrub(p))]); }\n}\npush('landing.promo_action',['run_id','action_id','title','action_type','date_start','date_end','freeze_date','auto_add_dates','potential_products_count','participating_products_count','is_participating','discount_type','discount_value','with_targeting','raw'],acts);\npush('landing.seller_action',['run_id','action_id','title','action_type','date_start','date_end','is_turn_on','sku_count','raw'],sacts);\npush('landing.promo_action_product',['run_id','action_id','source','product_id','action_price','price','marketplace_seller_price','min_seller_price','max_action_price','alert_max_action_price','alert_max_action_price_failed','add_mode','current_boost','min_boost','max_boost','price_min_elastic','price_max_elastic','min_stock','stock','recommended_stock','is_quarantined','website_price','website_prices','total_reported','raw'],prods);\npush('landing.promo_action_autoadd',['run_id','action_id','auto_add_date','product_id','sku','offer_id','action_price_to_auto_add','price','base_price','marketplace_seller_price','min_seller_price','max_discount_price','quantity_to_auto_add','min_action_quantity','add_mode','website_prices','raw'],aas);\npush('landing.seller_action_product',['run_id','action_id','product_id','sku','offer_id','action_price','base_price','price','discount_percent','is_active','min_seller_price','raw'],sprods);\n// incomplete pagination flags\nconst pg={}; for(const o of ok){ const b=o.body||{}; if(!Array.isArray(b.products)) continue; const g=pg[o.req.base]||(pg[o.req.base]={n:0,total:null}); g.n+=b.products.length; if(b.total!=null) g.total=Math.max(g.total||0,Number(b.total)); }\nconst incomplete=Object.entries(pg).filter(([k,g])=>g.total!=null&&g.total>g.n).map(([k,g])=>k+' '+g.n+'/'+g.total);\nconst actionsOk=A.ok.some(o=>o.req.endpoint==='/v1/actions');\nconst nFail=failed.length+(A.retry||[]).length+(Bs.retry||[]).length;\nconst status=!actionsOk?'FAILED':(nFail||incomplete.length)?'PARTIAL':'SUCCEEDED';\nconst summary={status, calls_ok:ok.length, calls_failed:nFail, incomplete, counts, failed:failed.map(f=>({key:f.req.key,status:f.status,error:f.error})), retries_used:[...A.log,...Bs.log].filter(l=>l.attempt>1).length, http_log:[...A.log,...Bs.log]};\nif(!stmts.length) stmts.push('SELECT 1 AS empty');\nreturn stmts.map(q=>({json:{sql:q, summary}}));\n",
+        "mode": "runOnceForAllItems"
+      },
+      "name": "Build Inserts",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        900,
+        1300
+      ],
+      "id": "8b94baa5-8eb5-5752-8cf6-18093e3597d9"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ $json.sql }}",
+        "options": {}
+      },
+      "name": "Insert Rows",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1100,
+        1300
+      ],
+      "notes": "Credential required: postgres (attach your own after import)",
+      "id": "045de914-87a6-5443-be2b-dd3224e4044f"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst r=$('Init').first().json.run_id;\nreturn [{json:{sql:\"SELECT (SELECT count(*) FROM landing.promo_action WHERE run_id='\"+r+\"') actions, (SELECT count(*) FROM landing.promo_action_product WHERE run_id='\"+r+\"') products, (SELECT count(*) FROM landing.promo_api_call WHERE run_id='\"+r+\"') calls\"}}];\n",
+        "mode": "runOnceForAllItems"
+      },
+      "name": "Readback",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1300,
+        1300
+      ],
+      "id": "10b83ef6-8a7b-5c85-92d7-77fa64d34171"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ $json.sql }}",
+        "options": {}
+      },
+      "name": "Readback Query",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1500,
+        1300
+      ],
+      "notes": "Credential required: postgres (attach your own after import)",
+      "id": "afc9c2b1-0528-513d-8a71-ee6e802e7578"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst runId=$('Init').first().json.run_id;\nconst s=$('Build Inserts').first().json.summary;\nconst sql=\"INSERT INTO landing.promo_run_event (run_id, event, status, detail) VALUES ('\"+runId+\"','FINISHED','\"+s.status+\"','\"+JSON.stringify({...s, http_log: undefined}).replace(/'/g,\"''\")+\"'::jsonb)\";\nreturn [{json:{sql, run_id:runId, status:s.status}}];\n",
+        "mode": "runOnceForAllItems"
+      },
+      "name": "Finish",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1700,
+        1300
+      ],
+      "id": "2b7db642-ee9f-50c1-8f6a-5f3ff40a34f6"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ $json.sql }}",
+        "options": {}
+      },
+      "name": "Insert Finished",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1900,
+        1300
+      ],
+      "notes": "Credential required: postgres (attach your own after import)",
+      "id": "f8a3a31b-24d8-5189-809f-d60cd9472d04"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst f=$('Finish').first().json; const rb=$('Readback Query').first().json;\nif(f.status==='FAILED') throw new Error('Promo read FAILED: '+JSON.stringify($('Build Inserts').first().json.summary.failed).slice(0,800));\nreturn [{json:{run_id:f.run_id, status:f.status, readback:rb}}];\n",
+        "mode": "runOnceForAllItems"
+      },
+      "name": "Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2100,
+        1300
+      ],
+      "id": "02a378db-4497-592f-a07d-a19c61017919"
+    }
+  ],
+  "connections": {
+    "Daily Promo 08:40": {
+      "main": [
+        [
+          {
+            "node": "Init",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Init": {
+      "main": [
+        [
+          {
+            "node": "Insert Started",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert Started": {
+      "main": [
+        [
+          {
+            "node": "A Q1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "A Q1": {
+      "main": [
+        [
+          {
+            "node": "A HTTP1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "A HTTP1": {
+      "main": [
+        [
+          {
+            "node": "A C1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "A C1": {
+      "main": [
+        [
+          {
+            "node": "A Retry?1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "A Retry?1": {
+      "main": [
+        [
+          {
+            "node": "A Wait1 20s",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "A Done",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "A Wait1 20s": {
+      "main": [
+        [
+          {
+            "node": "A Q2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "A Q2": {
+      "main": [
+        [
+          {
+            "node": "A HTTP2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "A HTTP2": {
+      "main": [
+        [
+          {
+            "node": "A C2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "A C2": {
+      "main": [
+        [
+          {
+            "node": "A Retry?2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "A Retry?2": {
+      "main": [
+        [
+          {
+            "node": "A Wait2 40s",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "A Done",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "A Wait2 40s": {
+      "main": [
+        [
+          {
+            "node": "A Q3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "A Q3": {
+      "main": [
+        [
+          {
+            "node": "A HTTP3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "A HTTP3": {
+      "main": [
+        [
+          {
+            "node": "A C3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "A C3": {
+      "main": [
+        [
+          {
+            "node": "A Retry?3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "A Retry?3": {
+      "main": [
+        [
+          {
+            "node": "A Wait3 60s",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "A Done",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "A Wait3 60s": {
+      "main": [
+        [
+          {
+            "node": "A Q4",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "A Q4": {
+      "main": [
+        [
+          {
+            "node": "A HTTP4",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "A HTTP4": {
+      "main": [
+        [
+          {
+            "node": "A C4",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "A C4": {
+      "main": [
+        [
+          {
+            "node": "A Retry?4",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "A Retry?4": {
+      "main": [
+        [
+          {
+            "node": "A Wait4 60s",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "A Done",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "A Wait4 60s": {
+      "main": [
+        [
+          {
+            "node": "A Q5",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "A Q5": {
+      "main": [
+        [
+          {
+            "node": "A HTTP5",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "A HTTP5": {
+      "main": [
+        [
+          {
+            "node": "A C5",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "A C5": {
+      "main": [
+        [
+          {
+            "node": "A Done",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "A Done": {
+      "main": [
+        [
+          {
+            "node": "B Q1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "B Q1": {
+      "main": [
+        [
+          {
+            "node": "B HTTP1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "B HTTP1": {
+      "main": [
+        [
+          {
+            "node": "B C1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "B C1": {
+      "main": [
+        [
+          {
+            "node": "B Retry?1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "B Retry?1": {
+      "main": [
+        [
+          {
+            "node": "B Wait1 20s",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "B Done",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "B Wait1 20s": {
+      "main": [
+        [
+          {
+            "node": "B Q2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "B Q2": {
+      "main": [
+        [
+          {
+            "node": "B HTTP2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "B HTTP2": {
+      "main": [
+        [
+          {
+            "node": "B C2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "B C2": {
+      "main": [
+        [
+          {
+            "node": "B Retry?2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "B Retry?2": {
+      "main": [
+        [
+          {
+            "node": "B Wait2 40s",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "B Done",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "B Wait2 40s": {
+      "main": [
+        [
+          {
+            "node": "B Q3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "B Q3": {
+      "main": [
+        [
+          {
+            "node": "B HTTP3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "B HTTP3": {
+      "main": [
+        [
+          {
+            "node": "B C3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "B C3": {
+      "main": [
+        [
+          {
+            "node": "B Retry?3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "B Retry?3": {
+      "main": [
+        [
+          {
+            "node": "B Wait3 60s",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "B Done",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "B Wait3 60s": {
+      "main": [
+        [
+          {
+            "node": "B Q4",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "B Q4": {
+      "main": [
+        [
+          {
+            "node": "B HTTP4",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "B HTTP4": {
+      "main": [
+        [
+          {
+            "node": "B C4",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "B C4": {
+      "main": [
+        [
+          {
+            "node": "B Retry?4",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "B Retry?4": {
+      "main": [
+        [
+          {
+            "node": "B Wait4 60s",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "B Done",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "B Wait4 60s": {
+      "main": [
+        [
+          {
+            "node": "B Q5",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "B Q5": {
+      "main": [
+        [
+          {
+            "node": "B HTTP5",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "B HTTP5": {
+      "main": [
+        [
+          {
+            "node": "B C5",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "B C5": {
+      "main": [
+        [
+          {
+            "node": "B Done",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "B Done": {
+      "main": [
+        [
+          {
+            "node": "Build Inserts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Inserts": {
+      "main": [
+        [
+          {
+            "node": "Insert Rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert Rows": {
+      "main": [
+        [
+          {
+            "node": "Readback",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Readback": {
+      "main": [
+        [
+          {
+            "node": "Readback Query",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Readback Query": {
+      "main": [
+        [
+          {
+            "node": "Finish",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Finish": {
+      "main": [
+        [
+          {
+            "node": "Insert Finished",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert Finished": {
+      "main": [
+        [
+          {
+            "node": "Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "timezone": "Europe/Moscow",
+    "executionOrder": "v1"
+  },
+  "active": false
+}

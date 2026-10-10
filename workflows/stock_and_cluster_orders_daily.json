@@ -1,0 +1,858 @@
+{
+  "name": "Business OS - FBO stock + cluster orders daily collect (07:15 MSK)",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "15 7 * * *"
+            }
+          ]
+        }
+      },
+      "name": "Daily 07:15 MSK",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -1700,
+        -240
+      ],
+      "id": "f0c2a1d5-2c9b-5a67-a93b-fa0b6ea015f4"
+    },
+    {
+      "parameters": {},
+      "name": "Manual Collect",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -1700,
+        0
+      ],
+      "id": "4ae9453f-0e2a-589e-8e51-63b901f2e869"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "// Detect the trigger from its payload (not from $execution.mode): the schedule trigger sends a timestamp and\n// 'Day of week'/'Readable date', a webhook sends a body with requestKind, the manual trigger sends an empty object.\nconst raw = ($input.first() && $input.first().json) || {};\nconst fromSchedule = Boolean(raw.timestamp && (raw['Day of week'] !== undefined || raw['Readable date'] !== undefined));\nconst fromWebhook = raw.requestKind !== undefined;\nconst triggerKind = fromSchedule ? 'SCHEDULED' : (fromWebhook ? 'WEBHOOK' : 'MANUAL');\n\nconst nowUtc = new Date();\nconst msk = new Date(nowUtc.getTime() + 3 * 3600000);\nconst dateMsk = msk.toISOString().slice(0, 10);\n\nconst q = v => (v === null || v === undefined || v === '') ? 'NULL' : \"'\" + String(v).replace(/'/g, \"''\") + \"'\";\nconst runId = 'STOCK-TURNOVER-' + $workflow.id + '-' + $execution.id + '-' + dateMsk;\nconst insertRunSql = 'INSERT INTO ops.collector_run (run_id, run_date, trigger_type, status, started_at, generated_by) VALUES ('\n  + [q(runId), 'date ' + q(dateMsk), q('STOCK_TURNOVER_COLLECT'), q('RUNNING'), q(nowUtc.toISOString()) + '::timestamptz', q('stock_and_cluster_orders_daily')].join(',')\n  + ') ON CONFLICT (run_id) DO UPDATE SET status=' + q('RUNNING') + ', started_at=now(), trigger_type=EXCLUDED.trigger_type'\n  + ' RETURNING run_id, run_date, trigger_type';\n\nreturn [{ json: {\n  runId: runId,\n  businessDate: dateMsk,\n  capturedAt: nowUtc.toISOString(),\n  triggerKind: triggerKind,\n  requestKind: fromWebhook ? String(raw.requestKind) : null,\n  startedAt: nowUtc.toISOString(),\n  insertRunSql: insertRunSql\n} }];"
+      },
+      "name": "Init Run",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1420,
+        0
+      ],
+      "id": "705fe340-c17c-532b-b185-283c9f826335"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ $json.insertRunSql }}",
+        "options": {}
+      },
+      "name": "Insert collector_run RUNNING",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -1180,
+        0
+      ],
+      "onError": "stopWorkflow",
+      "notes": "Credential required: postgres (attach your own after import)",
+      "id": "dbf5deca-01eb-5872-9355-cc95b1441ed3"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT sku FROM raw.sku WHERE sku > 0 ORDER BY 1",
+        "options": {}
+      },
+      "name": "Read SKU Universe",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -940,
+        0
+      ],
+      "onError": "continueErrorOutput",
+      "notes": "Credential required: postgres (attach your own after import)",
+      "id": "3af620a8-ab63-583b-b6f8-3a9de6a554de"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const ctx = $('Init Run').first().json;\nconst nums = $input.all().map(i => Number(i.json.sku)).filter(n => Number.isSafeInteger(n) && n > 0);\nconst skus = Array.from(new Set(nums)).sort((a, b) => a - b);\nif (skus.length === 0) {\n  throw new Error('STOCK_NO_SKU_UNIVERSE: raw.sku returned no numeric SKU');\n}\nif (skus.length > 1000) {\n  throw new Error('STOCK_TURNOVER_SKU_UNIVERSE_TOO_BIG: ' + skus.length + ' SKUs exceed the request limit of 1000; pagination is needed instead of silent truncation');\n}\nconst skusStr = skus.map(String);\nreturn [{ json: Object.assign({}, ctx, {\n  skus: skus,\n  skusStr: skusStr,\n  skuCount: skus.length,\n  turnoverBody: {\n  limit: 1000,\n  offset: 0,\n  sku: skusStr\n},\n  sowBody: {\n  limit: 1000,\n  offset: 0,\n  warehouse_type: 'ALL'\n},\n  fboBody: {\n  skus: skusStr,\n  limit: 1000\n}\n}) }];"
+      },
+      "name": "Collect Context",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -700,
+        0
+      ],
+      "onError": "continueErrorOutput",
+      "id": "a61d3c3f-4b06-5eea-bb99-4bb9ebd08989"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api-seller.ozon.ru/v1/analytics/turnover/stocks",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpCustomAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($('Collect Context').first().json.turnoverBody) }}",
+        "options": {
+          "timeout": 60000,
+          "response": {
+            "response": {
+              "neverError": true,
+              "outputPropertyName": "rawTurnover",
+              "responseFormat": "file",
+              "fullResponse": true
+            }
+          }
+        }
+      },
+      "name": "Call Turnover Stocks",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        -440,
+        0
+      ],
+      "retryOnFail": false,
+      "executeOnce": true,
+      "notes": "Credential required: httpCustomAuth (attach your own after import)",
+      "id": "7b0a37fc-1ac2-58bf-83fe-33e5587e5d41"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const EXTRACT_BODY = function (body) {\n  if (!body || typeof body !== 'object') return null;\n  if (Array.isArray(body.items)) return body.items;\n  if (Array.isArray(body.result)) return body.result;\n  if (body.result && Array.isArray(body.result.items)) return body.result.items;\n  if (body.result && Array.isArray(body.result.rows)) return body.result.rows;\n  if (Array.isArray(body.rows)) return body.rows;\n  return null;\n};\n\nconst crypto = require('crypto');\nconst sha256 = s => crypto.createHash('sha256').update(s, 'utf8').digest('hex');\nconst ctx = $('Collect Context').first().json;\nconst METHOD = 'turnover_stocks';\nconst ENDPOINT = '/v1/analytics/turnover/stocks';\nconst TABLE = 'landing.stock_turnover';\nconst LIMIT = 1000;\n\nconst out = {\n  method: METHOD, endpoint: ENDPOINT, table: TABLE,\n  http_status: 0, rows_parsed: 0, rows_landed: 0,\n  error: null, response_sha256: '', raw_bytes: 0, body_keys: '', insert_sql: ''\n};\n\nconst it = ($input.first() && $input.first().json) || {};\nconst status = Number(it.statusCode !== undefined ? it.statusCode : (it.status !== undefined ? it.status : 0));\nout.http_status = status;\n\nlet text = null;\ntry {\n  const buf = await this.helpers.getBinaryDataBuffer(0, 'rawTurnover');\n  if (buf) { text = buf.toString('utf8'); out.raw_bytes = buf.length; }\n} catch (e) { text = null; }\n\nif (text === null) {\n  out.error = 'NO_RESPONSE_BODY: no response body; statusCode=' + status + '; json=' + JSON.stringify(it).slice(0, 800);\n} else {\n  out.response_sha256 = sha256(text);\n  let body = null;\n  try { body = JSON.parse(text); } catch (e) { out.error = 'RESPONSE_NOT_JSON: ' + String(e.message) + '; body=' + text.slice(0, 800); }\n  if (body !== null && out.error === null) {\n    out.body_keys = Object.keys(body || {}).join(',');\n    if (status !== 200) {\n      out.error = 'HTTP_' + status + ': ' + text.slice(0, 1500);\n    } else {\n      const rows = EXTRACT_BODY(body);\n      if (!Array.isArray(rows) || rows.length === 0) {\n        out.error = 'EMPTY_RESULT: response keys=[' + out.body_keys + ']; body=' + text.slice(0, 1500);\n      } else {\n        const cursorLeft = typeof body.cursor === 'string' && body.cursor.length > 0 && rows.length >= LIMIT;\n        const totalLeft = Number.isFinite(Number(body.total)) && Number(body.total) > rows.length;\n        if (cursorLeft || totalLeft) {\n          out.error = 'PAGES_REMAIN: got ' + rows.length + ' rows, cursor=' + JSON.stringify(body.cursor) + ', total=' + JSON.stringify(body.total);\n        } else {\n          const arr = [];\n          for (const r of rows) {\n            const skuRaw = (r.sku !== undefined && r.sku !== null) ? r.sku : r.product_id;\n            const skuNum = Number(skuRaw);\n            if (!Number.isSafeInteger(skuNum) || skuNum <= 0) {\n              out.error = 'BAD_SKU_IN_RESPONSE: ' + JSON.stringify(r).slice(0, 400);\n              break;\n            }\n            arr.push({\n              sku: skuNum,\n              offer_id: String(r.offer_id !== undefined ? r.offer_id : (r.item_code !== undefined ? r.item_code : '')),\n              warehouse_name: String(r.warehouse_name !== undefined ? r.warehouse_name : ''),\n              row_sha256: sha256(JSON.stringify(r)),\n              raw: r\n            });\n          }\n          if (out.error === null && arr.length === 0) {\n            out.error = 'NO_MAPPABLE_ROWS: rows in response ' + rows.length;\n          }\n          if (out.error === null) {\n            out.rows_parsed = arr.length;\n            const literal = '$strows$' + JSON.stringify(arr).split('$strows$').join('_strows_') + '$strows$';\n            const selectList = \"date '\" + ctx.businessDate + \"', s.sku, s.offer_id, s.warehouse_name, (s.raw->>'turnover')::numeric, (s.raw->>'current_stock')::numeric, (s.raw->>'ads')::numeric, '\" + ENDPOINT + \"', '\" + ctx.runId + \"', timestamptz '\" + ctx.capturedAt\n  + \"', 1 + coalesce((SELECT max(r.revision) FROM \" + TABLE\n  + \" r WHERE r.business_date = date '\" + ctx.businessDate\n  + \"' AND r.sku = s.sku AND r.warehouse_name = s.warehouse_name), 0), \"\n  + out.http_status + \", '\" + out.response_sha256 + \"', s.row_sha256, s.raw\";\n            out.insert_sql =\n              'WITH payload AS (SELECT ' + literal + '::jsonb AS arr), '\n              + 'src AS (SELECT (e->>\\'sku\\')::bigint AS sku, coalesce(e->>\\'offer_id\\',\\'\\') AS offer_id, '\n              + 'coalesce(e->>\\'warehouse_name\\',\\'\\') AS warehouse_name, e->>\\'row_sha256\\' AS row_sha256, e->\\'raw\\' AS raw '\n              + 'FROM payload, jsonb_array_elements(payload.arr) AS e), '\n              + 'ins AS (INSERT INTO ' + TABLE + ' (business_date, sku, offer_id, warehouse_name, turnover_days, current_stock, daily_sales, source_endpoint, run_id, captured_at, revision, http_status, response_sha256, row_sha256, raw) '\n              + 'SELECT ' + selectList + ' FROM src s RETURNING 1) '\n              + 'SELECT count(*) AS inserted_rows FROM ins';\n          }\n        }\n      }\n    }\n  }\n}\nif (out.error !== null || !out.insert_sql) {\n  out.rows_parsed = 0;\n  out.insert_sql = 'SELECT 0 AS inserted_rows';\n}\nreturn [{ json: out }];"
+      },
+      "name": "Parse Turnover",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -200,
+        0
+      ],
+      "id": "8ce799b9-7795-5027-b674-6110eda9eee2"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ $('Parse Turnover').first().json.insert_sql }}",
+        "options": {}
+      },
+      "name": "Insert Turnover",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        40,
+        0
+      ],
+      "onError": "continueErrorOutput",
+      "notes": "Credential required: postgres (attach your own after import)",
+      "id": "fe8dcd91-b2f7-5170-a12f-8754ec3d4232"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api-seller.ozon.ru/v2/analytics/stock_on_warehouses",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpCustomAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($('Collect Context').first().json.sowBody) }}",
+        "options": {
+          "timeout": 60000,
+          "response": {
+            "response": {
+              "neverError": true,
+              "outputPropertyName": "rawSow",
+              "responseFormat": "file",
+              "fullResponse": true
+            }
+          }
+        }
+      },
+      "name": "Call Stock On Warehouses",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        300,
+        0
+      ],
+      "retryOnFail": false,
+      "executeOnce": true,
+      "notes": "Credential required: httpCustomAuth (attach your own after import)",
+      "id": "d8a6bfe7-8753-58de-a052-c5e5e1bf8e66"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const EXTRACT_BODY = function (body) {\n  if (!body || typeof body !== 'object') return null;\n  if (body.result && Array.isArray(body.result.rows)) return body.result.rows;\n  if (Array.isArray(body.result)) return body.result;\n  if (Array.isArray(body.rows)) return body.rows;\n  return null;\n};\n\nconst crypto = require('crypto');\nconst sha256 = s => crypto.createHash('sha256').update(s, 'utf8').digest('hex');\nconst ctx = $('Collect Context').first().json;\nconst METHOD = 'stock_on_warehouses';\nconst ENDPOINT = '/v2/analytics/stock_on_warehouses';\nconst TABLE = 'landing.stock_on_warehouses';\nconst LIMIT = 1000;\n\nconst out = {\n  method: METHOD, endpoint: ENDPOINT, table: TABLE,\n  http_status: 0, rows_parsed: 0, rows_landed: 0,\n  error: null, response_sha256: '', raw_bytes: 0, body_keys: '', insert_sql: ''\n};\n\nconst it = ($input.first() && $input.first().json) || {};\nconst status = Number(it.statusCode !== undefined ? it.statusCode : (it.status !== undefined ? it.status : 0));\nout.http_status = status;\n\nlet text = null;\ntry {\n  const buf = await this.helpers.getBinaryDataBuffer(0, 'rawSow');\n  if (buf) { text = buf.toString('utf8'); out.raw_bytes = buf.length; }\n} catch (e) { text = null; }\n\nif (text === null) {\n  out.error = 'NO_RESPONSE_BODY: no response body; statusCode=' + status + '; json=' + JSON.stringify(it).slice(0, 800);\n} else {\n  out.response_sha256 = sha256(text);\n  let body = null;\n  try { body = JSON.parse(text); } catch (e) { out.error = 'RESPONSE_NOT_JSON: ' + String(e.message) + '; body=' + text.slice(0, 800); }\n  if (body !== null && out.error === null) {\n    out.body_keys = Object.keys(body || {}).join(',');\n    if (status !== 200) {\n      out.error = 'HTTP_' + status + ': ' + text.slice(0, 1500);\n    } else {\n      const rows = EXTRACT_BODY(body);\n      if (!Array.isArray(rows) || rows.length === 0) {\n        out.error = 'EMPTY_RESULT: response keys=[' + out.body_keys + ']; body=' + text.slice(0, 1500);\n      } else {\n        const cursorLeft = typeof body.cursor === 'string' && body.cursor.length > 0 && rows.length >= LIMIT;\n        const totalLeft = Number.isFinite(Number(body.total)) && Number(body.total) > rows.length;\n        if (cursorLeft || totalLeft) {\n          out.error = 'PAGES_REMAIN: got ' + rows.length + ' rows, cursor=' + JSON.stringify(body.cursor) + ', total=' + JSON.stringify(body.total);\n        } else {\n          const arr = [];\n          for (const r of rows) {\n            const skuRaw = (r.sku !== undefined && r.sku !== null) ? r.sku : r.product_id;\n            const skuNum = Number(skuRaw);\n            if (!Number.isSafeInteger(skuNum) || skuNum <= 0) {\n              out.error = 'BAD_SKU_IN_RESPONSE: ' + JSON.stringify(r).slice(0, 400);\n              break;\n            }\n            arr.push({\n              sku: skuNum,\n              offer_id: String(r.offer_id !== undefined ? r.offer_id : (r.item_code !== undefined ? r.item_code : '')),\n              warehouse_name: String(r.warehouse_name !== undefined ? r.warehouse_name : ''),\n              row_sha256: sha256(JSON.stringify(r)),\n              raw: r\n            });\n          }\n          if (out.error === null && arr.length === 0) {\n            out.error = 'NO_MAPPABLE_ROWS: rows in response ' + rows.length;\n          }\n          if (out.error === null) {\n            out.rows_parsed = arr.length;\n            const literal = '$strows$' + JSON.stringify(arr).split('$strows$').join('_strows_') + '$strows$';\n            const selectList = \"date '\" + ctx.businessDate + \"', s.sku, s.offer_id, s.warehouse_name, (s.raw->>'item_name'), (s.raw->>'free_to_sell_amount')::numeric, (s.raw->>'reserved_amount')::numeric, '\" + ENDPOINT + \"', '\" + ctx.runId + \"', timestamptz '\" + ctx.capturedAt\n  + \"', 1 + coalesce((SELECT max(r.revision) FROM \" + TABLE\n  + \" r WHERE r.business_date = date '\" + ctx.businessDate\n  + \"' AND r.sku = s.sku AND r.warehouse_name = s.warehouse_name), 0), \"\n  + out.http_status + \", '\" + out.response_sha256 + \"', s.row_sha256, s.raw\";\n            out.insert_sql =\n              'WITH payload AS (SELECT ' + literal + '::jsonb AS arr), '\n              + 'src AS (SELECT (e->>\\'sku\\')::bigint AS sku, coalesce(e->>\\'offer_id\\',\\'\\') AS offer_id, '\n              + 'coalesce(e->>\\'warehouse_name\\',\\'\\') AS warehouse_name, e->>\\'row_sha256\\' AS row_sha256, e->\\'raw\\' AS raw '\n              + 'FROM payload, jsonb_array_elements(payload.arr) AS e), '\n              + 'ins AS (INSERT INTO ' + TABLE + ' (business_date, sku, offer_id, warehouse_name, product_name, present, reserved, source_endpoint, run_id, captured_at, revision, http_status, response_sha256, row_sha256, raw) '\n              + 'SELECT ' + selectList + ' FROM src s RETURNING 1) '\n              + 'SELECT count(*) AS inserted_rows FROM ins';\n          }\n        }\n      }\n    }\n  }\n}\nif (out.error !== null || !out.insert_sql) {\n  out.rows_parsed = 0;\n  out.insert_sql = 'SELECT 0 AS inserted_rows';\n}\nreturn [{ json: out }];"
+      },
+      "name": "Parse Stock On Warehouses",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        540,
+        0
+      ],
+      "id": "e10e5eba-21ca-57db-b3af-6adfe69ddda5"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ $('Parse Stock On Warehouses').first().json.insert_sql }}",
+        "options": {}
+      },
+      "name": "Insert Stock On Warehouses",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        780,
+        0
+      ],
+      "onError": "continueErrorOutput",
+      "notes": "Credential required: postgres (attach your own after import)",
+      "id": "19468ab0-c7b7-5300-813f-4217e563c00a"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api-seller.ozon.ru/v1/product/info/stocks-by-warehouse/fbo",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpCustomAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($('Collect Context').first().json.fboBody) }}",
+        "options": {
+          "timeout": 60000,
+          "response": {
+            "response": {
+              "neverError": true,
+              "outputPropertyName": "rawFbo",
+              "responseFormat": "json",
+              "fullResponse": true
+            }
+          },
+          "pagination": {
+            "pagination": {
+              "paginationMode": "updateAParameterInEachRequest",
+              "parameters": {
+                "parameters": [
+                  {
+                    "type": "body",
+                    "name": "cursor",
+                    "value": "={{ $response.body.cursor }}"
+                  }
+                ]
+              },
+              "paginationCompleteWhen": "other",
+              "completeExpression": "={{ $response.body.has_next !== true }}",
+              "limitPagesFetched": true,
+              "maxRequests": 20,
+              "requestInterval": 500
+            }
+          }
+        }
+      },
+      "name": "Call FBO Stocks By Warehouse",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        1040,
+        0
+      ],
+      "retryOnFail": false,
+      "executeOnce": true,
+      "notes": "Credential required: httpCustomAuth (attach your own after import)",
+      "id": "ef5f64f0-8ecc-5ac7-a2d8-003643fa8c65"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const EXTRACT_BODY = function (body) {\n  if (!body || typeof body !== 'object') return null;\n  if (Array.isArray(body.products)) return body.products;\n  if (Array.isArray(body.stocks)) return body.stocks;\n  if (body.result && Array.isArray(body.result.stocks)) return body.result.stocks;\n  if (Array.isArray(body.result)) return body.result;\n  return null;\n};\n\nconst crypto = require('crypto');\nconst sha256 = s => crypto.createHash('sha256').update(s, 'utf8').digest('hex');\nconst ctx = $('Collect Context').first().json;\nconst METHOD = 'fbo_stocks_by_warehouse';\nconst ENDPOINT = '/v1/product/info/stocks-by-warehouse/fbo';\nconst TABLE = 'landing.fbo_stock_by_warehouse';\nconst LIMIT = 1000;\n\nconst out = {\n  method: METHOD, endpoint: ENDPOINT, table: TABLE,\n  http_status: 0, rows_parsed: 0, rows_landed: 0,\n  error: null, response_sha256: '', raw_bytes: 0, body_keys: '', insert_sql: ''\n};\n\n\nconst items = $input.all();\nconst needsMore = function (pageBody, pageRows) {\n  if (!pageBody || !Array.isArray(pageRows)) return false;\n  if (pageBody.has_next === true) return true;\n  if (pageBody.has_next === false) return false;\n  return typeof pageBody.cursor === 'string' && pageBody.cursor.length > 0 && pageRows.length >= LIMIT;\n};\nconst MAX_PAGES = 20;\nif (!items.length) {\n  out.error = 'NO_RESPONSE_BODY: no pages';\n} else {\n  const rows = [];\n  const pageTexts = [];\n  let pages = 0;\n  let lastBody = null;\n  let lastRows = [];\n  for (let i = 0; i < items.length; i++) {\n    if (pages >= MAX_PAGES) {\n      out.error = 'PAGES_REMAIN: pages=' + pages + ' extra_items=' + (items.length - i);\n      break;\n    }\n    const item = (items[i] && items[i].json) || {};\n    const statusN = Number(item.statusCode !== undefined ? item.statusCode : 0);\n    if (i === 0) out.http_status = statusN;\n    let parsed = null;\n    if (item.body !== undefined && item.body !== null) parsed = item.body;\n    else if (item.products || item.stocks || item.result) parsed = item;\n    if (typeof parsed === 'string') {\n      try { parsed = JSON.parse(parsed); } catch (e2) {\n        out.error = 'RESPONSE_NOT_JSON: page=' + (i + 1);\n        break;\n      }\n    }\n    if (!parsed || typeof parsed !== 'object') {\n      out.error = 'NO_RESPONSE_BODY: page=' + (i + 1) + ' status=' + statusN;\n      break;\n    }\n    const pageText = JSON.stringify(parsed);\n    pageTexts.push(pageText);\n    if (i === 0) out.body_keys = Object.keys(parsed).join(',');\n    if (statusN !== 200) {\n      out.error = 'HTTP_' + statusN + ': page=' + (i + 1);\n      break;\n    }\n    const pageRows = EXTRACT_BODY(parsed);\n    if (!Array.isArray(pageRows) || pageRows.length === 0) {\n      out.error = 'EMPTY_PAGE: page=' + (i + 1) + ' keys=' + Object.keys(parsed).join(',');\n      break;\n    }\n    rows.push.apply(rows, pageRows);\n    lastBody = parsed;\n    lastRows = pageRows;\n    pages += 1;\n  }\n  if (out.error === null && needsMore(lastBody, lastRows)) {\n    out.error = 'PAGES_REMAIN: pages=' + pages + ' last_rows=' + lastRows.length + ' has_next=' + JSON.stringify(lastBody && lastBody.has_next);\n  }\n  if (out.error === null) {\n    const deduped = [];\n    const seen = new Set();\n    for (let j = rows.length - 1; j >= 0; j--) {\n      const row = rows[j];\n      const skuKey = String(row.sku !== undefined && row.sku !== null ? row.sku : row.product_id);\n      const whKey = String((row.warehouse_name !== undefined && row.warehouse_name !== null && String(row.warehouse_name) !== '') ? row.warehouse_name : (row.warehouse_id !== undefined && row.warehouse_id !== null ? row.warehouse_id : ''));\n      const dedupeKey = skuKey + '|' + whKey;\n      if (seen.has(dedupeKey)) continue;\n      seen.add(dedupeKey);\n      deduped.push(row);\n    }\n    deduped.reverse();\n    rows.length = 0;\n    rows.push.apply(rows, deduped);\n    out.response_sha256 = sha256(pageTexts.join('|'));\n    out.raw_bytes = pageTexts.reduce(function (sum, part) { return sum + part.length; }, 0);\n    out.body_keys = out.body_keys + ';pages=' + pages + ';rows=' + rows.length;\n  }\n  if (out.error !== null) {\n  } else {\n          const arr = [];\n          for (const r of rows) {\n            const skuRaw = (r.sku !== undefined && r.sku !== null) ? r.sku : r.product_id;\n            const skuNum = Number(skuRaw);\n            if (!Number.isSafeInteger(skuNum) || skuNum <= 0) {\n              out.error = 'BAD_SKU_IN_RESPONSE: ' + JSON.stringify(r).slice(0, 400);\n              break;\n            }\n            arr.push({\n              sku: skuNum,\n              offer_id: String(r.offer_id !== undefined ? r.offer_id : (r.item_code !== undefined ? r.item_code : '')),\n              warehouse_name: String((r.warehouse_name !== undefined && r.warehouse_name !== null && String(r.warehouse_name) !== '') ? r.warehouse_name : (r.warehouse_id !== undefined && r.warehouse_id !== null ? r.warehouse_id : '')),\n              row_sha256: sha256(JSON.stringify(r)),\n              raw: r\n            });\n          }\n          if (out.error === null && arr.length === 0) {\n            out.error = 'NO_MAPPABLE_ROWS: rows in response ' + rows.length;\n          }\n          if (out.error === null) {\n            out.rows_parsed = arr.length;\n            const literal = '$strows$' + JSON.stringify(arr).split('$strows$').join('_strows_') + '$strows$';\n            const selectList = \"date '\" + ctx.businessDate + \"', s.sku, s.offer_id, s.warehouse_name, (s.raw->>'item_name'), (COALESCE(s.raw->>'free_to_sell_amount', s.raw->>'present'))::numeric, (s.raw->>'promised_amount')::numeric, (COALESCE(s.raw->>'reserved_amount', s.raw->>'reserved'))::numeric, '\" + ENDPOINT + \"', '\" + ctx.runId + \"', timestamptz '\" + ctx.capturedAt\n  + \"', 1 + coalesce((SELECT max(r.revision) FROM \" + TABLE\n  + \" r WHERE r.business_date = date '\" + ctx.businessDate\n  + \"' AND r.sku = s.sku AND r.warehouse_name = s.warehouse_name), 0), \"\n  + out.http_status + \", '\" + out.response_sha256 + \"', s.row_sha256, s.raw\";\n            out.insert_sql =\n              'WITH payload AS (SELECT ' + literal + '::jsonb AS arr), '\n              + 'src AS (SELECT (e->>\\'sku\\')::bigint AS sku, coalesce(e->>\\'offer_id\\',\\'\\') AS offer_id, '\n              + 'coalesce(e->>\\'warehouse_name\\',\\'\\') AS warehouse_name, e->>\\'row_sha256\\' AS row_sha256, e->\\'raw\\' AS raw '\n              + 'FROM payload, jsonb_array_elements(payload.arr) AS e), '\n              + 'ins AS (INSERT INTO ' + TABLE + ' (business_date, sku, offer_id, warehouse_name, item_name, free_to_sell_amount, promised_amount, reserved_amount, source_endpoint, run_id, captured_at, revision, http_status, response_sha256, row_sha256, raw) '\n              + 'SELECT ' + selectList + ' FROM src s RETURNING 1) '\n              + 'SELECT count(*) AS inserted_rows FROM ins';\n          }\n  }\n}\nif (out.error !== null || !out.insert_sql) {\n  out.rows_parsed = 0;\n  out.insert_sql = 'SELECT 0 AS inserted_rows';\n}\nreturn [{ json: out }];"
+      },
+      "name": "Parse FBO Stocks",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1280,
+        0
+      ],
+      "id": "389051fb-d74b-5e9a-91b1-b3dfb7eedbe1"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ $('Parse FBO Stocks').first().json.insert_sql }}",
+        "options": {}
+      },
+      "name": "Insert FBO Stocks",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1520,
+        0
+      ],
+      "onError": "continueErrorOutput",
+      "notes": "Credential required: postgres (attach your own after import)",
+      "id": "f8bf0186-8bab-5343-af9f-8a81ca3482d2"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ \"SELECT (SELECT count(*) FROM landing.stock_turnover WHERE run_id = '\" + $('Init Run').first().json.runId.replace(/'/g, \"''\") + \"') AS turnover_landed, \" + \"(SELECT count(*) FROM landing.stock_on_warehouses WHERE run_id = '\" + $('Init Run').first().json.runId.replace(/'/g, \"''\") + \"') AS sow_landed, \" + \"(SELECT count(*) FROM landing.fbo_stock_by_warehouse WHERE run_id = '\" + $('Init Run').first().json.runId.replace(/'/g, \"''\") + \"') AS fbo_landed\" }}",
+        "options": {}
+      },
+      "name": "Readback Landed Counts",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1780,
+        0
+      ],
+      "onError": "continueErrorOutput",
+      "notes": "Credential required: postgres (attach your own after import)",
+      "id": "e786295c-62e5-52bf-9e32-6dfb9e51090a"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "// Compare rows parsed from each response with rows that actually landed (read back by run_id).\nconst ctx = $('Collect Context').first().json;\nconst cnt = ($input.first() && $input.first().json) || {};\nconst read = name => { try { const o = $(name).first(); return o ? o.json : null; } catch (e) { return null; } };\nconst q = v => (v === null || v === undefined || v === '') ? 'NULL' : \"'\" + String(v).replace(/'/g, \"''\") + \"'\";\nconst qi = v => { const n = Number(v); return Number.isFinite(n) ? String(Math.round(n)) : 'NULL'; };\nconst jd = v => '$stx$' + String(v).split('$stx$').join('_stx_') + '$stx$';\n\nconst plan = [\n  ['Parse Turnover', 'turnover_landed'],\n  ['Parse Stock On Warehouses', 'sow_landed'],\n  ['Parse FBO Stocks', 'fbo_landed']\n];\nconst methods = [];\nlet itemsWritten = 0;\nfor (const p of plan) {\n  const r = read(p[0]);\n  if (!r) { throw new Error('BRANCH_RECORD_MISSING: node ' + p[0] + ' returned no method record'); }\n  const landed = Number(cnt[p[1]]);\n  if (!Number.isFinite(landed)) { throw new Error('READBACK_COUNT_NOT_NUMERIC: ' + p[1] + '=' + JSON.stringify(cnt[p[1]])); }\n  if (!r.error && landed !== Number(r.rows_parsed)) {\n    throw new Error('LANDED_COUNT_MISMATCH: ' + r.method + ' parsed ' + r.rows_parsed + ', landed ' + landed);\n  }\n  if (!r.error && landed <= 0) {\n    throw new Error('NO_ROWS_LANDED: ' + r.method + ' landed no rows in ' + r.table);\n  }\n  r.rows_landed = landed;\n  itemsWritten += landed;\n  methods.push(r);\n}\nconst failed = methods.filter(m => m.error || m.rows_landed <= 0);\nconst overall = failed.length === 0 ? 'COMPLETED' : 'FAILED';\n\nconst detail = {\n  event_type: 'STOCK_TURNOVER_COLLECT',\n  trigger_kind: ctx.triggerKind,\n  request_kind: ctx.requestKind,\n  business_date: ctx.businessDate,\n  sku_universe_count: ctx.skuCount,\n  target_schema: 'landing',\n  items_written: itemsWritten,\n  methods_ok: methods.length - failed.length,\n  methods_failed: failed.length,\n  methods: methods.map(m => ({\n    method: m.method,\n    endpoint: m.endpoint,\n    table: m.table,\n    http_status: m.http_status,\n    rows_parsed: m.rows_parsed,\n    rows_landed: m.rows_landed,\n    response_sha256: m.response_sha256,\n    raw_bytes: m.raw_bytes,\n    body_keys: m.body_keys,\n    error: m.error ? String(m.error).slice(0, 1200) : null\n  })),\n  note: failed.length === 0\n    ? 'all three methods returned data and the rows landed'\n    : 'some methods returned no data; see the error of each method in methods'\n};\n\nconst errText = failed.length === 0 ? null\n  : failed.map(m => m.method + ': ' + String(m.error || 'no rows landed')).join(' | ').slice(0, 900);\n\nconst finishRunSql = 'UPDATE ops.collector_run SET status=' + q(overall)\n  + ', finished_at=now(), items_written=' + qi(itemsWritten)\n  + ', error=' + q(errText)\n  + ', detail=' + jd(JSON.stringify(detail)) + '::jsonb'\n  + ', generated_by=' + q('stock_and_cluster_orders_daily')\n  + ' WHERE run_id=' + q(ctx.runId)\n  + ' RETURNING run_id, status, items_written';\n\nreturn [{ json: {\n  runId: ctx.runId, overall: overall, itemsWritten: itemsWritten,\n  expectedDetail: detail, finishRunSql: finishRunSql\n} }];"
+      },
+      "name": "Verify Landed Rows",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2020,
+        0
+      ],
+      "onError": "continueErrorOutput",
+      "id": "c4cfe357-367b-5bed-838d-72a4e64559ab"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "// Error branch: a FAILED run record is written in every case (a failed run is still recorded).\nconst read = name => { try { const o = $(name).first(); return o ? o.json : null; } catch (e) { return null; } };\nconst ctx = read('Init Run') || {};\nconst j = ($input.first() && $input.first().json) || {};\nconst err = (j.error && (j.error.message || j.error.description))\n  || (j.executionError && (j.executionError.description || j.executionError.message))\n  || j.message || JSON.stringify(j).slice(0, 600);\nconst errText = String(err).slice(0, 900);\nconst failedNode = (j.node && j.node.name) || null;\nconst q = v => (v === null || v === undefined || v === '') ? 'NULL' : \"'\" + String(v).replace(/'/g, \"''\") + \"'\";\nconst jd = v => '$stx$' + String(v).split('$stx$').join('_stx_') + '$stx$';\n\nconst detail = {\n  event_type: 'STOCK_TURNOVER_COLLECT',\n  trigger_kind: ctx.triggerKind || null,\n  business_date: ctx.businessDate || null,\n  failed_node: failedNode,\n  error: errText,\n  note: 'execution stopped before the collection finished; run recorded as FAILED'\n};\n\nconst finishRunSql = 'UPDATE ops.collector_run SET status=' + q('FAILED')\n  + ', finished_at=now(), error=' + q(errText)\n  + ', detail=' + jd(JSON.stringify(detail)) + '::jsonb'\n  + ', generated_by=' + q('stock_and_cluster_orders_daily')\n  + ' WHERE run_id=' + q(ctx.runId)\n  + ' RETURNING run_id, status, items_written';\n\nreturn [{ json: { runId: ctx.runId, overall: 'FAILED', itemsWritten: 0, errorText: errText, finishRunSql: finishRunSql } }];"
+      },
+      "name": "Fail Run",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2020,
+        360
+      ],
+      "id": "04b6ca6c-7901-5257-8ca7-a2e97b61f4cc"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ $json.finishRunSql }}",
+        "options": {}
+      },
+      "name": "Finish collector_run",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        2280,
+        180
+      ],
+      "onError": "stopWorkflow",
+      "notes": "Credential required: postgres (attach your own after import)",
+      "id": "435bd8a8-1c74-5724-bc33-4e9299ae9104"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ \"SELECT run_id, status, items_written, error, detail FROM ops.collector_run WHERE run_id = '\" + $('Init Run').first().json.runId.replace(/'/g, \"''\") + \"'\" }}",
+        "options": {}
+      },
+      "name": "Readback Receipt",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        2520,
+        180
+      ],
+      "onError": "stopWorkflow",
+      "notes": "Credential required: postgres (attach your own after import)",
+      "id": "523ea81b-835a-5f0b-814d-544da96350f7"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "// Read the run record back and verify it. Then a fail-closed gate: if the run is not COMPLETED,\n// the execution must end with an error, never with a green status.\nconst row = ($input.first() && $input.first().json) || null;\nconst read = name => { try { const o = $(name).first(); return o ? o.json : null; } catch (e) { return null; } };\nconst expected = read('Verify Landed Rows') || read('Fail Run') || null;\n\nif (!row || !row.run_id) {\n  throw new Error('RECEIPT_READBACK_EMPTY: run record not found in ops.collector_run, run_id=' + (expected ? expected.runId : 'unknown'));\n}\nif (!expected) {\n  throw new Error('RECEIPT_NO_EXPECTATION: nothing to compare the run record with, run_id=' + row.run_id);\n}\nif (row.run_id !== expected.runId) {\n  throw new Error('RECEIPT_RUN_ID_MISMATCH: db=' + row.run_id + ' expected=' + expected.runId);\n}\nif (String(row.status) !== String(expected.overall)) {\n  throw new Error('RECEIPT_STATUS_MISMATCH: db=' + row.status + ' expected=' + expected.overall);\n}\nconst detail = typeof row.detail === 'string' ? JSON.parse(row.detail) : (row.detail || {});\nif (Number(row.items_written) !== Number(expected.itemsWritten)) {\n  throw new Error('RECEIPT_COLUMN_ITEMS_MISMATCH: column items_written=' + row.items_written + ' expected=' + expected.itemsWritten);\n}\nif (expected.expectedDetail) {\n  const e = expected.expectedDetail;\n  if (detail.event_type !== e.event_type || detail.business_date !== e.business_date) {\n    throw new Error('RECEIPT_DETAIL_MISMATCH: event_type or business_date differs from the expected value');\n  }\n  if (Number(detail.items_written) !== Number(e.items_written)) {\n    throw new Error('RECEIPT_ITEMS_MISMATCH: db=' + detail.items_written + ' expected=' + e.items_written);\n  }\n  if (Array.isArray(detail.methods) && Array.isArray(e.methods) && detail.methods.length !== e.methods.length) {\n    throw new Error('RECEIPT_METHODS_MISMATCH: db=' + detail.methods.length + ' expected=' + e.methods.length);\n  }\n}\nif (String(row.status) !== 'COMPLETED') {\n  throw new Error('STOCK_RUN_FAILED (fail-closed): run_id=' + row.run_id + '; ' + String(row.error || JSON.stringify(detail)).slice(0, 900));\n}\nconst m = Array.isArray(detail.methods) ? detail.methods : [];\nreturn [{ json: {\n  run_id: row.run_id,\n  status: row.status,\n  business_date: detail.business_date,\n  trigger_kind: detail.trigger_kind,\n  items_written: Number(detail.items_written),\n  methods: m.map(x => ({ method: x.method, endpoint: x.endpoint, http_status: x.http_status, rows_landed: x.rows_landed, response_sha256: x.response_sha256, error: x.error })),\n  receipt_verified: true\n} }];"
+      },
+      "name": "Verify Receipt And Gate",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2760,
+        180
+      ],
+      "id": "7dee7152-4de2-5702-acac-ecc7ac250e4f"
+    },
+    {
+      "parameters": {
+        "jsCode": "\n// CL: build 4 day-requests (D-4..D-1, MSK days; filter = created_at)\nconst DAYS = 4;\nconst nowMsk = new Date(Date.now() + 3*3600*1000);\nconst todayMsk = new Date(Date.UTC(nowMsk.getUTCFullYear(), nowMsk.getUTCMonth(), nowMsk.getUTCDate()));\nconst out = [];\nfor (let i = DAYS; i >= 1; i--) {\n  const d = new Date(todayMsk.getTime() - i*86400000);\n  const since = new Date(d.getTime() - 3*3600*1000), to = new Date(since.getTime() + 86400000);\n  out.push({json:{day: d.toISOString().slice(0,10), body:{cursor:'', filter:{since: since.toISOString().replace('.000',''), to: to.toISOString().replace('.000','')}, limit:100, sort_dir:'asc', translit:false, with:{analytics_data:true, financial_data:true, legal_info:false}}}});\n}\nreturn out;\n"
+      },
+      "name": "CL Build Requests",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1450,
+        760
+      ],
+      "notes": "Daily increment of FBO postings with buyer cluster (read-only API, append-only insert).",
+      "id": "9964e6c8-9fd3-5df0-970d-8e26a16d0f0f"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api-seller.ozon.ru/v3/posting/fbo/list",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpCustomAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify($json.body) }}",
+        "options": {
+          "timeout": 60000,
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 1500
+            }
+          },
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "file",
+              "outputPropertyName": "raw"
+            }
+          }
+        }
+      },
+      "name": "CL FBO Postings",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -1200,
+        760
+      ],
+      "onError": "continueRegularOutput",
+      "retryOnFail": false,
+      "notes": "Credential required: httpCustomAuth (attach your own after import)",
+      "id": "8c376b8c-6346-5aad-914e-22a66303c829"
+    },
+    {
+      "parameters": {
+        "jsCode": "\n// CL: flatten postings -> rows for raw.fbo_posting_line_obs\nconst crypto = require('crypto');\nconst reqs = $('CL Build Requests').all();\nconst items = $input.all();\nconst rows = []; const stat = {}; const flags = []; let postings = 0;\nconst num = v => (v === null || v === undefined || v === '') ? null : Number(v);\nfor (let i = 0; i < items.length; i++) {\n  const day = reqs[i]?.json?.day; const j = items[i].json || {};\n  const sc = String(j.statusCode ?? 'ERR'); stat[sc] = (stat[sc]||0) + 1;\n  let b = {}; let buf = null;\n  try { buf = await this.helpers.getBinaryDataBuffer(i, 'raw'); } catch (e) { buf = null; }\n  if (buf) { try { b = JSON.parse(buf.toString('utf8')); } catch (e) { b = {}; } }\n  if (sc !== '200' || !Array.isArray(b.postings)) { flags.push(day+':HTTP_'+sc+':'+(buf?buf.length:0)+'B'); continue; }\n  if (b.has_next) flags.push(day+':HAS_NEXT_NOT_PAGINATED');\n  const rawSha = crypto.createHash('sha256').update(buf).digest('hex');\n  for (const p of b.postings) {\n    postings++;\n    const ad = p.analytics_data || {}, fd = p.financial_data || {}, cn = p.cancellation || {};\n    const fp = {}; for (const x of (fd.products||[])) { (fp[x.product_id] = fp[x.product_id] || []).push(x); }\n    const c = new Date(p.created_at); const dm = new Date(c.getTime() + 3*3600*1000).toISOString().slice(0,10);\n    (p.products||[]).forEach((pr, li) => {\n      const f = (fp[pr.sku] && fp[pr.sku].length) ? fp[pr.sku].shift() : {};\n      const r = {source_endpoint:'/v3/posting/fbo/list', run_tag:'CLUSTER_DAILY_'+$execution.id, exec_id:String($execution.id), raw_sha256:rawSha,\n        posting_number:p.posting_number, order_id:p.order_id ?? null, order_number:p.order_number ?? null, status:p.status ?? null, substatus:p.substatus ?? null,\n        cancellation_type:cn.cancellation_type ?? null, cancel_reason:cn.cancel_reason ?? null, cancel_reason_id:p.cancel_reason_id ?? null,\n        created_at_utc:p.created_at, in_process_at_utc:p.in_process_at ?? null, order_date_msk:dm, line_ordinal:li,\n        sku:pr.sku, offer_id:pr.offer_id ?? null, product_name:pr.name ?? null, quantity:pr.quantity, price:num(pr.price?.amount), currency:pr.price?.currency ?? null,\n        old_price:num(f.old_price), payout:num(f.payout), commission_amount:num(f.commission?.amount),\n        cluster_from:fd.cluster_from || null, cluster_to:fd.cluster_to || null, warehouse_id:ad.warehouse_id ?? null, warehouse_name:ad.warehouse_name ?? null,\n        delivery_type:ad.delivery_type ?? null, city:ad.city ?? null, is_premium:ad.is_premium ?? null, is_legal:ad.is_legal ?? null};\n      const keys = Object.keys(r).filter(k => !['source_endpoint','run_tag','exec_id','raw_sha256'].includes(k));\n      r.row_sha256 = crypto.createHash('sha256').update('js1|'+JSON.stringify(keys.map(k => r[k]))).digest('hex');\n      rows.push(r);\n    });\n  }\n}\nconst days = reqs.map(r => r.json.day);\nreturn [{json:{rows, run:[{run_tag:'CLUSTER_DAILY_'+$execution.id, kind:'DAILY', date_from:days[0], date_to:days[days.length-1], requests_n:items.length, http_statuses:stat,\n  postings_n:postings, lines_n:rows.length, exec_ids:String($execution.id), status: flags.length ? 'PARTIAL' : 'OK', note: flags.join(',') || null}]}}];\n"
+      },
+      "name": "CL Parse",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -950,
+        760
+      ],
+      "onError": "continueRegularOutput",
+      "id": "535caf29-817c-5385-b247-d09fda86a1fb"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "with x as (select * from jsonb_to_recordset($1::jsonb) as x(source_endpoint text, run_tag text, exec_id text, raw_sha256 text, posting_number text, order_id bigint, order_number text, status text, substatus text, cancellation_type text, cancel_reason text, cancel_reason_id int, created_at_utc timestamptz, in_process_at_utc timestamptz, order_date_msk date, line_ordinal int, sku bigint, offer_id text, product_name text, quantity numeric, price numeric, currency text, old_price numeric, payout numeric, commission_amount numeric, cluster_from text, cluster_to text, warehouse_id bigint, warehouse_name text, delivery_type text, city text, is_premium boolean, is_legal boolean, row_sha256 text)),\nins as (insert into raw.fbo_posting_line_obs (source_endpoint, run_id, exec_id, raw_sha256, posting_number, order_id, order_number, status, substatus, cancellation_type, cancel_reason, cancel_reason_id, created_at_utc, in_process_at_utc, order_date_msk, line_ordinal, sku, offer_id, product_name, quantity, price_rub, currency, old_price, payout, commission_amount, cluster_from, cluster_to, warehouse_id, warehouse_name, delivery_type, city, is_premium, is_legal, row_sha256)\n  select source_endpoint, run_tag, exec_id, raw_sha256, posting_number, order_id, order_number, status, substatus, cancellation_type, cancel_reason, cancel_reason_id, created_at_utc, in_process_at_utc, order_date_msk, line_ordinal, sku, offer_id, product_name, quantity, price, currency, old_price, payout, commission_amount, cluster_from, cluster_to, warehouse_id, warehouse_name, delivery_type, city, is_premium, is_legal, row_sha256 from x\n  where not exists (select 1 from analytics.v_posting_line_current c where c.posting_number=x.posting_number and c.line_ordinal=x.line_ordinal\n     and c.status is not distinct from x.status and c.substatus is not distinct from x.substatus and c.cancellation_type is not distinct from x.cancellation_type\n     and c.sku=x.sku and c.quantity=x.quantity and c.price_rub is not distinct from x.price and c.payout is not distinct from x.payout\n     and c.commission_amount is not distinct from x.commission_amount and c.cluster_from is not distinct from x.cluster_from\n     and c.cluster_to is not distinct from x.cluster_to and c.warehouse_id is not distinct from x.warehouse_id)\n  on conflict (row_sha256) do nothing returning 1),\nr as (select * from jsonb_to_recordset($2::jsonb) as r(run_tag text, kind text, date_from date, date_to date, requests_n int, http_statuses jsonb, postings_n int, lines_n int, exec_ids text, status text, note text)),\nlg as (insert into ops.cluster_load_run (run_tag, kind, date_from, date_to, requests_n, http_statuses, postings_n, lines_n, lines_inserted, exec_ids, status, note)\n  select run_tag, kind, date_from, date_to, requests_n, http_statuses, postings_n, lines_n, (select count(*) from ins), exec_ids, status, note from r returning run_tag, lines_inserted, status)\nselect * from lg",
+        "options": {
+          "queryReplacement": "={{ [JSON.stringify($json.rows), JSON.stringify($json.run)] }}"
+        }
+      },
+      "name": "CL Insert Neon",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -700,
+        760
+      ],
+      "onError": "continueRegularOutput",
+      "notes": "Credential required: postgres (attach your own after import)",
+      "id": "9badc584-a35c-56c3-a0be-a675e0266ab3"
+    }
+  ],
+  "connections": {
+    "Daily 07:15 MSK": {
+      "main": [
+        [
+          {
+            "node": "Init Run",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "CL Build Requests",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Manual Collect": {
+      "main": [
+        [
+          {
+            "node": "Init Run",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "CL Build Requests",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Init Run": {
+      "main": [
+        [
+          {
+            "node": "Insert collector_run RUNNING",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert collector_run RUNNING": {
+      "main": [
+        [
+          {
+            "node": "Read SKU Universe",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read SKU Universe": {
+      "main": [
+        [
+          {
+            "node": "Collect Context",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Fail Run",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Collect Context": {
+      "main": [
+        [
+          {
+            "node": "Call Turnover Stocks",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Fail Run",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call Turnover Stocks": {
+      "main": [
+        [
+          {
+            "node": "Parse Turnover",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Turnover": {
+      "main": [
+        [
+          {
+            "node": "Insert Turnover",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert Turnover": {
+      "main": [
+        [
+          {
+            "node": "Call Stock On Warehouses",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Fail Run",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call Stock On Warehouses": {
+      "main": [
+        [
+          {
+            "node": "Parse Stock On Warehouses",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Stock On Warehouses": {
+      "main": [
+        [
+          {
+            "node": "Insert Stock On Warehouses",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert Stock On Warehouses": {
+      "main": [
+        [
+          {
+            "node": "Call FBO Stocks By Warehouse",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Fail Run",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call FBO Stocks By Warehouse": {
+      "main": [
+        [
+          {
+            "node": "Parse FBO Stocks",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse FBO Stocks": {
+      "main": [
+        [
+          {
+            "node": "Insert FBO Stocks",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert FBO Stocks": {
+      "main": [
+        [
+          {
+            "node": "Readback Landed Counts",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Fail Run",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Readback Landed Counts": {
+      "main": [
+        [
+          {
+            "node": "Verify Landed Rows",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Fail Run",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verify Landed Rows": {
+      "main": [
+        [
+          {
+            "node": "Finish collector_run",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Fail Run",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fail Run": {
+      "main": [
+        [
+          {
+            "node": "Finish collector_run",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Finish collector_run": {
+      "main": [
+        [
+          {
+            "node": "Readback Receipt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Readback Receipt": {
+      "main": [
+        [
+          {
+            "node": "Verify Receipt And Gate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CL Build Requests": {
+      "main": [
+        [
+          {
+            "node": "CL FBO Postings",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CL FBO Postings": {
+      "main": [
+        [
+          {
+            "node": "CL Parse",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CL Parse": {
+      "main": [
+        [
+          {
+            "node": "CL Insert Neon",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "timezone": "Europe/Moscow",
+    "executionOrder": "v1"
+  },
+  "active": false
+}

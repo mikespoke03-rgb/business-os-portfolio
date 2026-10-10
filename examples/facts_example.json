@@ -1,0 +1,360 @@
+{
+ "ads": {
+  "drr_pct": null,
+  "stat_day": "2026-04-14",
+  "cpc_clicks": 332,
+  "cpc_orders": 17,
+  "cpc_status": "OK",
+  "ppo_orders": null,
+  "ppo_status": "MISSING",
+  "cpc_cpc_rub": 12.89,
+  "cpc_ctr_pct": 2.8,
+  "cpc_spend_rub": 4278.05,
+  "cpc_impressions": 11844,
+  "ppo_spend_report_rub": null,
+  "cpc_order_revenue_rub": 21388.22,
+  "ppo_order_revenue_rub": null,
+  "ppo_spend_expense_rub": 910.03,
+  "shop_order_revenue_rub": null,
+  "cpc_spend_diff_vs_expense_rub": -0.5
+ },
+ "mtd": {
+  "n": 13,
+  "ads": 70095,
+  "bar": 195000,
+  "rev": 1502313,
+  "o_cm": 447893,
+  "r_cm": 215774,
+  "r_bar": 180000,
+  "n_realised": 12
+ },
+ "cash": {
+  "as_of": "2026-04-12",
+  "min_30d": {
+   "day": "2026-04-20",
+   "balance_rub": 70100.0
+  },
+  "opening": 40000,
+  "next_out": {
+   "day": "2026-04-20",
+   "events": "Loan interest -70000 (CONFIRMED)",
+   "balance_rub": 70100.0,
+   "outflow_rub": -70000,
+   "balance_before": 140100.0
+  },
+  "opening_status": "OWNER_STATED"
+ },
+ "ship": {
+  "lines": 137,
+  "units": 926,
+  "cover_days": 45,
+  "n_no_fresh": 0,
+  "stock_date": "2026-04-15",
+  "orders_as_of": "2026-04-14",
+  "top_clusters": [
+   {
+    "units": 311,
+    "cluster": "Moscow"
+   },
+   {
+    "units": 97,
+    "cluster": "Kazakhstan"
+   },
+   {
+    "units": 96,
+    "cluster": "Siberia"
+   },
+   {
+    "units": 83,
+    "cluster": "South"
+   }
+  ]
+ },
+ "promo": {
+  "n_actions": 3,
+  "measured_at": "2026-04-15T08:41:31+03:00",
+  "autoadd_date": "2026-04-16",
+  "autoadd_dont": 2,
+  "nearest_dont": 3,
+  "autoadd_n_sku": 6,
+  "nearest_enter": 2,
+  "nearest_n_sku": 9,
+  "nearest_start": "2026-04-17",
+  "nearest_title": "Weekend flash sale",
+  "nearest_decide": 4,
+  "n_participating": 13,
+  "autoadd_margin_delta_day_rub": -1538
+ },
+ "stock": {
+  "d": "2026-04-15",
+  "cap": "2026-04-15T07:15:59+03:00",
+  "n_sku": 24,
+  "n_zero": 2,
+  "critical": [
+   {
+    "free": 0,
+    "offer": "DEMO-007",
+    "name_en": "Eye cream 20 ml",
+    "name_ru": "Крем для век 20 ml"
+   }
+  ],
+  "crit_units": 5
+ },
+ "today": "2026-04-15",
+ "orders": [
+  {
+   "d": "2026-04-05",
+   "u": 60,
+   "cm": 27534,
+   "ads": 4232,
+   "bar": 15000,
+   "r_u": 55,
+   "rev": 89905,
+   "canc": 2,
+   "r_cm": 16695,
+   "r_sales": 87796,
+   "cm_buyout": 21181,
+   "loaded_at": "2026-04-06T05:30:54+03:00",
+   "realised_state": "REALISED_PRESENT"
+  },
+  {
+   "d": "2026-04-06",
+   "u": 97,
+   "cm": 50180,
+   "ads": 2822,
+   "bar": 15000,
+   "r_u": 55,
+   "rev": 154711,
+   "canc": 4,
+   "r_cm": 15107,
+   "r_sales": 83288,
+   "cm_buyout": 39579,
+   "loaded_at": "2026-04-07T05:30:59+03:00",
+   "realised_state": "REALISED_PRESENT"
+  },
+  {
+   "d": "2026-04-07",
+   "u": 101,
+   "cm": 44116,
+   "ads": 6409,
+   "bar": 15000,
+   "r_u": 71,
+   "rev": 143679,
+   "canc": 3,
+   "r_cm": 23391,
+   "r_sales": 118643,
+   "cm_buyout": 34011,
+   "loaded_at": "2026-04-08T05:30:41+03:00",
+   "realised_state": "REALISED_PRESENT"
+  },
+  {
+   "d": "2026-04-08",
+   "u": 79,
+   "cm": 33802,
+   "ads": 5309,
+   "bar": 15000,
+   "r_u": 45,
+   "rev": 113522,
+   "canc": 4,
+   "r_cm": 13632,
+   "r_sales": 75440,
+   "cm_buyout": 25980,
+   "loaded_at": "2026-04-09T05:30:58+03:00",
+   "realised_state": "REALISED_PRESENT"
+  },
+  {
+   "d": "2026-04-09",
+   "u": 69,
+   "cm": 34208,
+   "ads": 4090,
+   "bar": 15000,
+   "r_u": 54,
+   "rev": 114651,
+   "canc": 6,
+   "r_cm": 12596,
+   "r_sales": 79838,
+   "cm_buyout": 26548,
+   "loaded_at": "2026-04-10T05:30:53+03:00",
+   "realised_state": "REALISED_PRESENT"
+  },
+  {
+   "d": "2026-04-10",
+   "u": 66,
+   "cm": 22583,
+   "ads": 8533,
+   "bar": 15000,
+   "r_u": 59,
+   "rev": 93519,
+   "canc": 4,
+   "r_cm": 21344,
+   "r_sales": 110216,
+   "cm_buyout": 16360,
+   "loaded_at": "2026-04-11T05:30:55+03:00",
+   "realised_state": "REALISED_PRESENT"
+  },
+  {
+   "d": "2026-04-11",
+   "u": 68,
+   "cm": 35629,
+   "ads": 6305,
+   "bar": 15000,
+   "r_u": 103,
+   "rev": 120512,
+   "canc": 2,
+   "r_cm": 22386,
+   "r_sales": 143382,
+   "cm_buyout": 27242,
+   "loaded_at": "2026-04-12T05:30:57+03:00",
+   "realised_state": "REALISED_PRESENT"
+  },
+  {
+   "d": "2026-04-12",
+   "u": 70,
+   "cm": 33003,
+   "ads": 4478,
+   "bar": 15000,
+   "r_u": 47,
+   "rev": 105073,
+   "canc": 0,
+   "r_cm": 13474,
+   "r_sales": 75780,
+   "cm_buyout": 25507,
+   "loaded_at": "2026-04-13T05:30:55+03:00",
+   "realised_state": "REALISED_PRESENT"
+  },
+  {
+   "d": "2026-04-13",
+   "u": 77,
+   "cm": 30704,
+   "ads": 6902,
+   "bar": 15000,
+   "r_u": null,
+   "rev": 112577,
+   "canc": 4,
+   "r_cm": null,
+   "r_sales": null,
+   "cm_buyout": 23183,
+   "loaded_at": "2026-04-14T05:30:59+03:00",
+   "realised_state": "REALISED_MISSING"
+  }
+ ],
+ "prices": {
+  "d": "2026-04-15",
+  "n": 24,
+  "cap": "2026-04-15T08:48:41+03:00",
+  "prev_d": "2026-04-14",
+  "changes": [
+   {
+    "new": 1560,
+    "old": 1380,
+    "offer": "DEMO-011",
+    "name_en": "Clay mask 100 ml",
+    "name_ru": "Глиняная маска 100 ml"
+   },
+   {
+    "new": 2050,
+    "old": 1910,
+    "offer": "DEMO-015",
+    "name_en": "Sun stick SPF50 18 g",
+    "name_ru": "Солнцезащитный стик SPF50 18 g"
+   }
+  ],
+  "promo_below": 14,
+  "last_change_day": "2026-04-08"
+ },
+ "ads_mtd": {
+  "rev": 1502313.83,
+  "spend": 75282.44,
+  "spend_with_rev": 70094.36
+ },
+ "freshness": {
+  "promo": {
+   "last_day": "2026-04-15",
+   "freshness": "FRESH",
+   "run_error": null,
+   "run_status": null,
+   "captured_at": "2026-04-15T08:41:31+03:00",
+   "expected_day": "2026-04-15"
+  },
+  "ads_cpc": {
+   "last_day": "2026-04-14",
+   "freshness": "FRESH",
+   "run_error": null,
+   "run_status": "COMPLETED",
+   "captured_at": "2026-04-15T05:30:54+03:00",
+   "expected_day": "2026-04-14"
+  },
+  "ads_ppo": {
+   "last_day": "2026-04-13",
+   "freshness": "STALE",
+   "run_error": null,
+   "run_status": "COMPLETED",
+   "captured_at": "2026-04-14T06:20:32+03:00",
+   "expected_day": "2026-04-14"
+  },
+  "fbo_stock": {
+   "last_day": "2026-04-15",
+   "freshness": "FRESH",
+   "run_error": null,
+   "run_status": "COMPLETED",
+   "captured_at": "2026-04-15T07:15:59+03:00",
+   "expected_day": "2026-04-15"
+  },
+  "ads_expense": {
+   "last_day": "2026-04-14",
+   "freshness": "FRESH",
+   "run_error": null,
+   "run_status": null,
+   "captured_at": "2026-04-15T06:05:17+03:00",
+   "expected_day": "2026-04-14"
+  },
+  "realization": {
+   "last_day": "2026-04-12",
+   "freshness": "STALE",
+   "run_error": null,
+   "run_status": null,
+   "captured_at": "2026-04-13T06:10:10+03:00",
+   "expected_day": "2026-04-14"
+  },
+  "fbo_postings": {
+   "last_day": "2026-04-14",
+   "freshness": "FRESH",
+   "run_error": null,
+   "run_status": "COMPLETED",
+   "captured_at": "2026-04-15T07:15:59+03:00",
+   "expected_day": "2026-04-14"
+  },
+  "orders_by_sku": {
+   "last_day": "2026-04-13",
+   "freshness": "STALE",
+   "run_error": "HTTP 429 after 4 retries",
+   "run_status": "FAILED",
+   "captured_at": "2026-04-14T05:30:59+03:00",
+   "expected_day": "2026-04-14"
+  },
+  "seller_prices": {
+   "last_day": "2026-04-15",
+   "freshness": "FRESH",
+   "run_error": null,
+   "run_status": "COMPLETED",
+   "captured_at": "2026-04-15T08:48:41+03:00",
+   "expected_day": "2026-04-15"
+  }
+ },
+ "live_send": {
+  "value": 0,
+  "status": "DRAFT"
+ },
+ "coverage_30d": {
+  "DIFF": 2,
+  "MATCH": 27,
+  "NO_SECOND_SOURCE": 1
+ },
+ "failed_runs_today": [
+  {
+   "error": "HTTP 429 after 4 retries",
+   "state": "FAILED",
+   "source": "orders_by_sku"
+  }
+ ]
+}

@@ -1,0 +1,30 @@
+name: business-os-portfolio-demo
+services:
+  demo-db:
+    image: postgres:16-bookworm
+    environment:
+      POSTGRES_USER: demo
+      POSTGRES_PASSWORD: demo-only-not-a-secret
+      POSTGRES_DB: bos_portfolio_demo
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U demo -d bos_portfolio_demo']
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    networks: [demo-internal]
+  demo:
+    build: .
+    environment:
+      DATABASE_URL: postgresql://demo@demo-db:5432/bos_portfolio_demo
+      PGPASSWORD: demo-only-not-a-secret
+    depends_on:
+      demo-db:
+        condition: service_healthy
+    volumes:
+      - ./demo-output:/output
+    networks: [demo-internal]
+networks:
+  demo-internal:
+    internal: true

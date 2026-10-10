@@ -1,0 +1,25 @@
+{
+  "source": "GROK_BOT",
+  "note": "recorded via Grok Bot desktop assistant; not an API call",
+  "method": "For each question the exact prompt from llm/answer.js buildMessages() (system prompt + masked facts) was saved to llm/eval/grok_bot/prompts/<id>.json and answered by Grok Bot from that prompt only. All 15 answers were written before grading and were not edited afterwards.",
+  "caveat": "The same Grok Bot session had earlier authored the golden questions and the hand-written fixtures (v0.3), so these answers are not blind to the expected format.",
+  "model": "Grok Bot (desktop assistant)",
+  "recorded_at": "2026-10-10T15:29:41+03:00",
+  "answers": {
+    "q01": "В последний загруженный день, 13.04 [факт: orders.8.d], заказали 77 шт [факт: orders.8.u] на 112 577 ₽ [факт: orders.8.rev]; отменено 4 шт [факт: orders.8.canc].",
+    "q02": "За 14.04 [факт: freshness.orders_by_sku.expected_day] нет данных: загрузка заказов не прошла (HTTP 429 after 4 retries [факт: freshness.orders_by_sku.run_error]), последний загруженный день — 13.04 [факт: freshness.orders_by_sku.last_day].",
+    "q03": "ДРР за 14.04 [факт: ads.stat_day] — нет данных [факт: ads.drr_pct]: заказы за этот день не загружены, последний загруженный день 13.04 [факт: freshness.orders_by_sku.last_day]. С начала месяца по дням с загруженными заказами расход 70 094 ₽ [факт: ads_mtd.spend_with_rev] при выручке 1 502 314 ₽ [факт: ads_mtd.rev] — около 4,7%.",
+    "q04": "Нет данных [факт: ads.ppo_orders]: отчёт по оплате за заказ за 14.04 [факт: ads.stat_day] не получен (статус MISSING [факт: ads.ppo_status]). Расход по выписке за этот день — 910 ₽ [факт: ads.ppo_spend_expense_rub], но сколько заказов он принёс, неизвестно.",
+    "q05": "Фактическая маржа по начислениям за 13.04 [факт: orders.8.d] — нет данных [факт: orders.8.r_cm]: начисления загружены только по 12.04 [факт: freshness.realization.last_day]. Модельная маржа по заказам 13.04 — 30 704 ₽ [факт: orders.8.cm], но это оценка, а не факт.",
+    "q06": "За 14.04 [факт: ads.stat_day] на оплату за клики потратили 4 278,05 ₽ [факт: ads.cpc_spend_rub], CTR — 2,8% [факт: ads.cpc_ctr_pct] (332 клика [факт: ads.cpc_clicks] на 11 844 показа [факт: ads.cpc_impressions]).",
+    "q07": "Да, с запасом: с начала месяца (13 дней [факт: mtd.n]) вклад по заказам 447 893 ₽ [факт: mtd.o_cm] против порога 195 000 ₽ [факт: mtd.bar] — около 230% порога, запас 252 893 ₽. По фактическим начислениям (12 дней [факт: mtd.n_realised]) — 215 774 ₽ [факт: mtd.r_cm] при пороге 180 000 ₽ [факт: mtd.r_bar], около 120%.",
+    "q08": "По снимку остатков FBO 15.04 в 07:15 [факт: stock.cap] без свободного остатка 2 SKU [факт: stock.n_zero] из 24 [факт: stock.n_sku].",
+    "q09": "Закончился DEMO-007 [факт: stock.critical.0.offer]: свободный остаток 0 шт [факт: stock.critical.0.free] (в отчёт попадают важные SKU с остатком до 5 шт [факт: stock.crit_units]).",
+    "q10": "Названия и себестоимости DEMO-007 [факт: stock.critical.0.offer] в фактах нет — нет данных; товары я называю только кодом SKU.",
+    "q11": "По плану хватает: ближайший крупный платёж 20.04 [факт: cash.next_out.day] — 70 000 ₽ [факт: cash.next_out.outflow_rub], до него на счёте будет около 140 000 ₽ [факт: cash.next_out.balance_before], после — 70 000 ₽ [факт: cash.next_out.balance_rub]. Но остаток кассы указан владельцем, а не подтверждён выпиской [факт: cash.opening_status].",
+    "q12": "Рекомендуется отгрузить 926 шт [факт: ship.units] по 137 строкам SKU×кластер [факт: ship.lines] под 45 дней спроса [факт: ship.cover_days]; больше всего — в кластер Moscow [факт: ship.top_clusters.0.cluster]: 311 шт [факт: ship.top_clusters.0.units].",
+    "q13": "Последнее изменение было 08.04 [факт: prices.last_change_day]: цена DEMO-015 [факт: prices.changes.1.offer] выросла с 1 910 ₽ [факт: prices.changes.1.old] до 2 050 ₽ [факт: prices.changes.1.new], то есть на 140 ₽.",
+    "q14": "Вне области: прогнозов курса валют в фактах отчёта нет.",
+    "q15": "Вне области: я не включаю товары в акции и не выполняю действия в кабинете — решение и действие за владельцем. Отчёт даёт по ближайшей акции только рекомендации."
+  }
+}
