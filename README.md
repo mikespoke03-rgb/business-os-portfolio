@@ -1,5 +1,9 @@
 # Business OS — управленческая аналитика для бренда на Ozon, собранная с AI-агентами
 
+[![Portfolio checks](https://github.com/mikespoke03-rgb/business-os-portfolio/actions/workflows/ci.yml/badge.svg)](https://github.com/mikespoke03-rgb/business-os-portfolio/actions/workflows/ci.yml)
+
+[Открыть демо в браузере](https://mikespoke03-rgb.github.io/business-os-portfolio/) · [Посмотреть кейс](docs/case-study.md) · [Автоматические проверки](https://github.com/mikespoke03-rgb/business-os-portfolio/actions)
+
 **Что это:** n8n каждое утро забирает данные Ozon Seller и Performance API в Postgres (Neon), SQL считает маржу, безубыточность, рекламу, акции, отгрузки и кассу, а в 09:00 владелец получает один отчёт в Telegram, где у каждой цифры есть дата, а «нет данных» никогда не превращается в 0.
 **Эффект:** вместо ручной сверки кабинетов и таблиц — один проверяемый отчёт и рекомендации (акции, отгрузки, закупки), которые ничего не меняют без решения владельца. По оценке владельца, это экономит около 4 рабочих часов в день.
 **Как сделано:** я ставил задачи, правила и критерии приёмки; код писали агенты Codex и Claude Code по правилам репозитория ([AGENTS.md](AGENTS.md), [CLAUDE.md](CLAUDE.md)) с тестами, eval-гейтом для LLM и CI. Все данные здесь синтетические (бренд DemoBrand).
